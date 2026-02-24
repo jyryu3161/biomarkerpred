@@ -1,0 +1,22 @@
+{
+  "pembrolizumab": {
+    "chembl_id": "CHEMBL3137343",
+    "target_type": "checkpoint_inhibitor",
+    "indication": "various solid tumors"
+  },
+  "nivolumab": {
+    "chembl_id": "CHEMBL3137310",
+    "target_type": "checkpoint_inhibitor",
+    "indication": "various solid tumors"
+  },
+  "atezolizumab": {
+    "chembl_id": "CHEMBL3137309",
+    "target_type": "checkpoint_inhibitor",
+    "indication": "various solid tumors"
+  },
+  "ipilimumab": {
+    "chembl_id": "CHEMBL1789844",
+    "target_type": "checkpoint_inhibitor",
+    "indication": "melanoma"
+  }
+}

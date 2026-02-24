@@ -1,0 +1,49 @@
+[workspace]
+name = "respred"
+version = "0.2.0"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+description = "RESPRED - RESponse PREDiction"
+
+[dependencies]
+# R dependencies available on conda-forge
+r-base = "4.3.*"
+r-yaml = "*"
+r-ggplot2 = "*"
+r-caret = "*"
+r-rocr = "*"
+r-proc = "*"
+# Note: r-cutpointr and r-coefplot are not available on conda-forge
+# These will be installed via CRAN using the install-r-packages task
+r-png = "*"
+r-magrittr = "*"
+
+# System libraries needed for R package compilation
+xz = "*"
+c-compiler = ">=1.11.0,<2"
+cxx-compiler = ">=1.11.0,<2"
+fortran-compiler = ">=1.10.0,<2"
+r-mvtnorm = ">=1.3_3,<2"
+r-desolve = ">=1.40,<2"
+r-locfit = ">=1.5_9.12,<2"
+r-kernlab = ">=0.9_33,<0.10"
+r-mclust = ">=6.1.1,<7"
+
+# System libraries for svglite/textshaping/systemfonts
+pkg-config = "*"
+fontconfig = "*"
+freetype = "*"
+harfbuzz = "*"
+fribidi = "*"
+r-systemfonts = "*"
+r-textshaping = "*"
+r-svglite = "*"
+
+[tasks]
+# R package installation
+install-r-packages = "R -q -e \"install.packages(c('ROCR','pROC','cutpointr','coefplot','caret','yaml','ggplot2','pheatmap','svglite','tiff','reshape2','gridExtra'), repos='https://cloud.r-project.org')\""
+
+# R analysis workflow
+# Note: config file should be specified via --config argument
+binary = "Rscript Main_Binary.R"

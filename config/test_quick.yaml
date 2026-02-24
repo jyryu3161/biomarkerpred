@@ -1,0 +1,18 @@
+# RESPRED - Quick Test Configuration (no FDR for small samples)
+workdir: "."
+data_file: Example_data.csv
+
+binary:
+  data_file: Example_data.csv
+  sample_id: sample
+  outcome: response
+  split_prop: 0.7
+  num_seed: 3
+  output_dir: results/binary
+  freq: 2
+  exclude: []
+  include: []
+  max_candidates_per_step: 200
+  prescreen_seeds: 3
+  p_adjust_method: none
+  p_threshold: 0.05

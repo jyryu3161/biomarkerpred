@@ -1,0 +1,21 @@
+# RESPRED - Example Configuration
+workdir: "."
+data_file: Example_data.csv
+
+binary:
+  data_file: Example_data.csv
+  sample_id: sample
+  outcome: response
+  split_prop: 0.7
+  num_seed: 30    # Number of iterations (reduced for small datasets)
+  output_dir: results/binary
+  freq: 15        # Cutoff for most frequent significant genes (~50% of num_seed)
+  exclude: []
+  include: []
+  max_candidates_per_step: 200  # Maximum number of candidates to evaluate per forward step
+  prescreen_seeds: 10  # Number of seeds to use for pre-screening
+
+  # P-value adjustment and filtering options
+  # top_k: 100  # Optional: Select top K genes by adjusted p-value per iteration
+  # p_adjust_method: fdr  # P-value adjustment method: "fdr" (default) or "bonferroni"
+  # p_threshold: 0.05  # Adjusted p-value threshold (default: 0.05)
