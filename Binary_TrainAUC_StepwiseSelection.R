@@ -9,8 +9,28 @@ if (!requireNamespace("svglite", quietly = TRUE)) {
   cat("STEPWISE_LOG:svglite not available, will use base svg instead\n", file = stderr())
 }
 
+# Font setup: prefer Arial, fall back to sans if not available
+PLOT_FONT <- tryCatch({
+  # Check if Arial is available on this system
+  fonts <- systemfonts::system_fonts()
+  if (any(grepl("Arial", fonts$family, ignore.case = TRUE))) {
+    "Arial"
+  } else if (any(grepl("Helvetica", fonts$family, ignore.case = TRUE))) {
+    "Helvetica"
+  } else {
+    "sans"
+  }
+}, error = function(e) {
+  # systemfonts not available, use safe default
+  if (.Platform$OS.type == "unix" && !grepl("darwin", R.version$os)) {
+    "sans"  # Linux (Docker) - Arial may not exist
+  } else {
+    "Arial"  # macOS/Windows
+  }
+})
+
 # Helper function for Nature-style theme
-nature_theme <- function(base_size = 10, base_family = "Helvetica") {
+nature_theme <- function(base_size = 10, base_family = PLOT_FONT) {
   theme_classic(base_size = base_size, base_family = base_family) +
     theme(
       plot.title = element_text(size = base_size + 2, face = "bold", hjust = 0.5, 
@@ -611,7 +631,7 @@ PlotBinROC <- function(dat,numSeed,SplitProp,Result){
   plot_roc_func <- function() {
     oldpar <- par(no.readonly = TRUE)
     on.exit(par(oldpar))
-    par(mfrow = c(1, 2), family = "Helvetica", bg = "white", mar = c(4.5, 4.5, 3, 1))
+    par(mfrow = c(1, 2), family = PLOT_FONT, bg = "white", mar = c(4.5, 4.5, 3, 1))
     diag_col <- adjustcolor("gray60", alpha.f = 0.6)
     iter_col <- adjustcolor("gray75", alpha.f = 0.8)
     
@@ -935,47 +955,29 @@ PlotBinConfusionMatrix <- function(dat, numSeed, SplitProp, Result) {
                       dimnames = list(Actual = c("Negative", "Positive"),
                                      Predicted = c("Negative", "Positive")))
   
-  # Create plot function for pheatmap
-  plot_cm_func <- function() {
-    pheatmap(cm_matrix, 
-              display_numbers = TRUE,
-              number_format = "%d",
-              cluster_rows = FALSE,
-              cluster_cols = FALSE,
-              color = colorRampPalette(c("white", nature_colors$blue))(100),
-              main = paste0("Confusion Matrix\n(Threshold = ", round(optimal_threshold, 3), ")"),
-              fontsize = 10,
-              fontsize_number = 11,
-              fontsize_row = 9,
-              fontsize_col = 9,
-              fontfamily = "Helvetica",
-              silent = TRUE)
-  }
-  
-  # Save as TIFF
-  if (!dir.exists("figures")) dir.create("figures", recursive = TRUE)
-  tryCatch({
-    tiff(filename = 'figures/Binary_Confusion_Matrix.tiff', width = 5*300, height = 5*300, units = "px", res = 300, compression = "lzw")
-    plot_cm_func()
-    dev.off()
-  }, error = function(e) {
-    try(dev.off(), silent = TRUE)
-    cat(paste("STEPWISE_LOG:Warning - Failed to save Confusion Matrix TIFF:", e$message, "\n"), file = stderr())
-  })
+  # Create confusion matrix plot using ggplot2 (more reliable than pheatmap for saving)
+  cm_long <- data.frame(
+    Actual = rep(c("Non-responder", "Responder"), each = 2),
+    Predicted = rep(c("Non-responder", "Responder"), 2),
+    Count = as.vector(cm_matrix),
+    Percent = as.vector(prop.table(cm_matrix) * 100)
+  )
+  cm_long$Actual <- factor(cm_long$Actual, levels = c("Responder", "Non-responder"))
+  cm_long$Predicted <- factor(cm_long$Predicted, levels = c("Non-responder", "Responder"))
+  cm_long$Label <- paste0(cm_long$Count, "\n(", sprintf("%.1f%%", cm_long$Percent), ")")
 
-  # Save as SVG
-  tryCatch({
-    if (requireNamespace("svglite", quietly = TRUE)) {
-      svglite::svglite(file = 'figures/Binary_Confusion_Matrix.svg', width = 5, height = 5)
-    } else {
-      svg(filename = 'figures/Binary_Confusion_Matrix.svg', width = 5, height = 5)
-    }
-    plot_cm_func()
-    dev.off()
-  }, error = function(e) {
-    try(dev.off(), silent = TRUE)
-    cat(paste("STEPWISE_LOG:Warning - Failed to save Confusion Matrix SVG:", e$message, "\n"), file = stderr())
-  })
+  p <- ggplot(cm_long, aes(x = Predicted, y = Actual, fill = Count)) +
+    geom_tile(color = "white", linewidth = 2) +
+    geom_text(aes(label = Label), size = 5, fontface = "bold", color = "black") +
+    scale_fill_gradient(low = "white", high = nature_colors$blue, guide = "none") +
+    labs(x = "Predicted", y = "Actual",
+         title = paste0("Confusion Matrix (Threshold = ", round(optimal_threshold, 3), ")")) +
+    nature_theme(base_size = 11) +
+    theme(axis.text = element_text(size = 11, face = "bold"),
+          panel.grid = element_blank(),
+          axis.line = element_blank())
+
+  save_plot(p, 'Binary_Confusion_Matrix', width_inch = 5, height_inch = 5)
 }
 
 # Stepwise Selection Process Visualization
@@ -1151,7 +1153,7 @@ PlotBinHeatmap <- function(dat, Result) {
                   main = "Biomarker Expression Heatmap",
                   fontsize = 9,
                   fontsize_row = 8,
-                  fontfamily = "Helvetica",
+                  fontfamily = PLOT_FONT,
                   border_color = NA,
                   silent = TRUE)
 

@@ -3,7 +3,7 @@ FROM rocker/r-ver:4.3.3
 LABEL maintainer="jyryu3161"
 LABEL description="RESPRED - RESponse PREDiction"
 
-# System dependencies for R packages
+# System dependencies for R packages + Arial font
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     libssl-dev \
@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libharfbuzz-dev \
     libfribidi-dev \
     cmake \
-    && rm -rf /var/lib/apt/lists/*
+    fontconfig \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
 
 # Install R packages (using Ncpus=4 for parallel compilation)
 RUN R -e "install.packages(c( \
