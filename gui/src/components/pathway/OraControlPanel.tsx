@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAnalysisStore } from "@/stores/analysisStore";
-import { useOraStore } from "@/stores/oraStore";
+import { useOraStore, EVIDENCE_LABELS, type EvidenceType } from "@/stores/oraStore";
 import { useConfigStore } from "@/stores/configStore";
 import { readTextFile, runOra, cancelOra } from "@/lib/tauri/commands";
 
@@ -68,6 +68,8 @@ export function OraControlPanel() {
   const oraStatus = useOraStore((s) => s.status);
   const ppiConfidence = useOraStore((s) => s.ppiConfidence);
   const setPpiConfidence = useOraStore((s) => s.setPpiConfidence);
+  const ppiEvidenceTypes = useOraStore((s) => s.ppiEvidenceTypes);
+  const toggleEvidenceType = useOraStore((s) => s.toggleEvidenceType);
   const setStatus = useOraStore((s) => s.setStatus);
   const setResultDir = useOraStore((s) => s.setResultDir);
   const appendLog = useOraStore((s) => s.appendLog);
@@ -116,7 +118,7 @@ export function OraControlPanel() {
     appendLog(`Starting pathway analysis with ${genes.length} candidate genes...`);
 
     try {
-      await runOra(genes, pathwayDir, ppiConfidence, 9606, backend);
+      await runOra(genes, pathwayDir, ppiConfidence, 9606, backend, ppiEvidenceTypes);
     } catch (e) {
       appendLog(`Failed to start: ${e}`);
       setStatus("failed");
@@ -201,6 +203,39 @@ export function OraControlPanel() {
           <span>0.40 (more interactions)</span>
           <span>1.00 (high confidence)</span>
         </div>
+      </div>
+
+      {/* PPI Evidence Types */}
+      <div className="mb-4">
+        <label className="text-xs text-muted-foreground mb-1.5 block">
+          PPI Evidence Types
+        </label>
+        <div className="grid grid-cols-4 gap-x-3 gap-y-1">
+          {(Object.entries(EVIDENCE_LABELS) as [EvidenceType, string][]).map(
+            ([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center gap-1.5 text-xs cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={ppiEvidenceTypes.includes(key)}
+                  onChange={() => toggleEvidenceType(key)}
+                  disabled={isRunning}
+                  className="rounded border-border accent-primary h-3.5 w-3.5"
+                />
+                <span className={ppiEvidenceTypes.includes(key) ? "text-foreground" : "text-muted-foreground"}>
+                  {label}
+                </span>
+              </label>
+            ),
+          )}
+        </div>
+        {ppiEvidenceTypes.length === 0 && (
+          <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+            At least one evidence type required. PPI will be skipped.
+          </p>
+        )}
       </div>
 
       {/* Action buttons */}

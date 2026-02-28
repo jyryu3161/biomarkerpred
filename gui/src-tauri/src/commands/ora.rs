@@ -69,6 +69,7 @@ pub async fn ora_run(
     ppi_confidence: f64,
     organism: u32,
     backend: Option<String>,
+    ppi_evidence_types: Option<Vec<String>>,
     app: tauri::AppHandle,
     state: State<'_, OraProcess>,
 ) -> Result<(), String> {
@@ -83,8 +84,9 @@ pub async fn ora_run(
     // Use the same backend as main analysis (from config store)
     let backend = backend.as_deref().unwrap_or("docker");
 
+    let evidence_types_ref = ppi_evidence_types.clone();
     if backend == "docker" {
-        return run_ora_docker(&genes_str, &output_dir, ppi_confidence, organism, app, state)
+        return run_ora_docker(&genes_str, &output_dir, ppi_confidence, organism, evidence_types_ref, app, state)
             .await;
     }
 
@@ -97,13 +99,20 @@ pub async fn ora_run(
     // Build R command
     let pixi_path = project_root.join(".pixi/envs/default/bin/Rscript");
     let script = "ORA_PPI_Analysis.R";
-    let script_args = vec![
+    let evidence_str = ppi_evidence_types
+        .as_ref()
+        .map(|types| types.join(","))
+        .unwrap_or_default();
+    let mut script_args = vec![
         script.to_string(),
         format!("--genes={}", genes_str),
         format!("--output-dir={}", output_dir),
         format!("--ppi-confidence={}", ppi_confidence),
         format!("--organism={}", organism),
     ];
+    if !evidence_str.is_empty() {
+        script_args.push(format!("--evidence-types={}", evidence_str));
+    }
 
     let (cmd_program, cmd_args) = if pixi_path.exists() {
         (pixi_path.to_string_lossy().to_string(), script_args)
@@ -267,6 +276,7 @@ async fn run_ora_docker(
     output_dir: &str,
     ppi_confidence: f64,
     organism: u32,
+    ppi_evidence_types: Option<Vec<String>>,
     app: tauri::AppHandle,
     state: State<'_, OraProcess>,
 ) -> Result<(), String> {
@@ -277,7 +287,7 @@ async fn run_ora_docker(
         p.to_string_lossy().replace('\\', "/")
     }
 
-    let docker_args = vec![
+    let mut docker_args = vec![
         "run".to_string(),
         "--rm".to_string(),
         "-v".to_string(),
@@ -289,6 +299,11 @@ async fn run_ora_docker(
         format!("--ppi-confidence={}", ppi_confidence),
         format!("--organism={}", organism),
     ];
+    if let Some(types) = &ppi_evidence_types {
+        if !types.is_empty() {
+            docker_args.push(format!("--evidence-types={}", types.join(",")));
+        }
+    }
 
     let _ = app.emit(
         "ora://log",

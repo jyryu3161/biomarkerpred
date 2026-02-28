@@ -121,8 +121,9 @@ export async function runOra(
   ppiConfidence: number,
   organism: number,
   backend?: string,
+  ppiEvidenceTypes?: string[],
 ): Promise<void> {
-  return invoke("ora_run", { genes, outputDir, ppiConfidence, organism, backend });
+  return invoke("ora_run", { genes, outputDir, ppiConfidence, organism, backend, ppiEvidenceTypes });
 }
 
 export async function cancelOra(): Promise<void> {

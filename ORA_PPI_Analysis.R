@@ -66,7 +66,8 @@ parse_args <- function() {
     output_dir = "results/binary/pathway",
     ppi_confidence = 0.7,
     organism = 9606,
-    skip_ppi = FALSE
+    skip_ppi = FALSE,
+    evidence_types = c("escore", "dscore", "tscore", "ascore", "nscore", "fscore", "pscore")
   )
 
   i <- 1
@@ -99,6 +100,11 @@ parse_args <- function() {
       params$organism <- as.integer(args[i])
     } else if (arg == "--skip-ppi") {
       params$skip_ppi <- TRUE
+    } else if (grepl("^--evidence-types=", arg)) {
+      params$evidence_types <- trimws(unlist(strsplit(sub("^--evidence-types=", "", arg), ",")))
+    } else if (arg == "--evidence-types" && i < length(args)) {
+      i <- i + 1
+      params$evidence_types <- trimws(unlist(strsplit(args[i], ",")))
     }
     i <- i + 1
   }
@@ -175,7 +181,8 @@ extract_genes_from_stepwise <- function(csv_path) {
 # STRING API PPI fetch
 # --------------------------------------------------------------------------
 
-fetch_string_ppi <- function(genes, species = 9606, score_threshold = 0.7) {
+fetch_string_ppi <- function(genes, species = 9606, score_threshold = 0.7,
+                             evidence_types = c("escore","dscore","tscore","ascore","nscore","fscore","pscore")) {
   if (length(genes) == 0) {
     return(list(edges = data.frame(source = character(), target = character(),
                                     score = numeric(), stringsAsFactors = FALSE),
@@ -212,13 +219,26 @@ fetch_string_ppi <- function(genes, species = 9606, score_threshold = 0.7) {
     })
 
     if (!is.null(response) && is.data.frame(response) && nrow(response) > 0) {
-      chunk_edges <- data.frame(
-        source = response$preferredName_A,
-        target = response$preferredName_B,
-        score  = response$score,
-        stringsAsFactors = FALSE
-      )
-      all_edges <- rbind(all_edges, chunk_edges)
+      # Filter by selected evidence types: keep edge if any selected evidence > 0
+      valid_etypes <- intersect(evidence_types, colnames(response))
+      if (length(valid_etypes) > 0 && length(valid_etypes) < 7) {
+        evidence_matrix <- response[, valid_etypes, drop = FALSE]
+        has_evidence <- apply(evidence_matrix, 1, function(row) any(row > 0))
+        response <- response[has_evidence, , drop = FALSE]
+        log_info(sprintf("Evidence filter (%s): %d -> %d interactions",
+                         paste(valid_etypes, collapse = ","),
+                         length(has_evidence), sum(has_evidence)))
+      }
+
+      if (nrow(response) > 0) {
+        chunk_edges <- data.frame(
+          source = response$preferredName_A,
+          target = response$preferredName_B,
+          score  = response$score,
+          stringsAsFactors = FALSE
+        )
+        all_edges <- rbind(all_edges, chunk_edges)
+      }
     }
   }
 
@@ -550,7 +570,8 @@ main <- function() {
   if (!params$skip_ppi) {
     ppi_result <- fetch_string_ppi(candidate_genes,
                                     species = params$organism,
-                                    score_threshold = params$ppi_confidence)
+                                    score_threshold = params$ppi_confidence,
+                                    evidence_types = params$evidence_types)
     if (!is.null(ppi_result)) {
       ppi_edges <- ppi_result$edges
       ppi_interactors <- ppi_result$interactors
