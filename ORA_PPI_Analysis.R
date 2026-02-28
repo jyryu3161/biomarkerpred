@@ -13,39 +13,13 @@
 # ============================================================================
 
 suppressPackageStartupMessages({
-  required_cran <- c("yaml", "dplyr", "readr", "stringr", "tibble",
-                     "ggplot2", "igraph", "tidygraph", "ggraph",
-                     "svglite", "jsonlite", "httr")
-  required_bioc <- c("clusterProfiler", "org.Hs.eg.db", "enrichplot", "ReactomePA")
-
-  install_missing_cran <- function(pkgs) {
-    missing <- pkgs[!vapply(pkgs, requireNamespace, FUN.VALUE = logical(1), quietly = TRUE)]
-    if (length(missing) > 0) {
-      install.packages(missing, repos = "https://cloud.r-project.org", quiet = TRUE)
-    }
-  }
-
-  install_missing_bioc <- function(pkgs) {
-    missing <- pkgs[!vapply(pkgs, requireNamespace, FUN.VALUE = logical(1), quietly = TRUE)]
-    if (length(missing) > 0) {
-      if (!requireNamespace("BiocManager", quietly = TRUE)) {
-        install.packages("BiocManager", repos = "https://cloud.r-project.org", quiet = TRUE)
-      }
-      BiocManager::install(missing, ask = FALSE, update = FALSE)
-    }
-  }
-
-  install_missing_cran(required_cran)
-  install_missing_bioc(required_bioc)
-
+  # All packages should be pre-installed via pixi (conda-forge + bioconda)
+  # or via Docker image. No runtime installation attempted.
   library(dplyr)
   library(readr)
   library(stringr)
   library(tibble)
   library(ggplot2)
-  library(igraph)
-  library(tidygraph)
-  library(ggraph)
   library(svglite)
   library(jsonlite)
   library(httr)

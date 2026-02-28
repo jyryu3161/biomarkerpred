@@ -68,6 +68,7 @@ pub async fn ora_run(
     output_dir: String,
     ppi_confidence: f64,
     organism: u32,
+    backend: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, OraProcess>,
 ) -> Result<(), String> {
@@ -79,22 +80,15 @@ pub async fn ora_run(
 
     let genes_str = genes.join(";");
 
-    // Determine backend from config store (check if Docker mode)
-    // For ORA, we detect based on the same logic as main analysis
-    let project_root = super::analysis::find_project_root();
-
-    let backend = if project_root.is_none() {
-        "docker"
-    } else {
-        "local"
-    };
+    // Use the same backend as main analysis (from config store)
+    let backend = backend.as_deref().unwrap_or("docker");
 
     if backend == "docker" {
         return run_ora_docker(&genes_str, &output_dir, ppi_confidence, organism, app, state)
             .await;
     }
 
-    let project_root = project_root.ok_or_else(|| {
+    let project_root = super::analysis::find_project_root().ok_or_else(|| {
         String::from(AppError::analysis_failed(
             "Cannot find project root (ORA_PPI_Analysis.R not found).",
         ))

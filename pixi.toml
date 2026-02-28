@@ -1,7 +1,7 @@
 [workspace]
 name = "respred"
 version = "0.2.0"
-channels = ["conda-forge"]
+channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 description = "RESPRED - RESponse PREDiction"
@@ -40,9 +40,25 @@ r-systemfonts = "*"
 r-textshaping = "*"
 r-svglite = "*"
 
+# Additional CRAN packages for ORA/PPI analysis
+r-httr = "*"
+r-jsonlite = "*"
+r-igraph = "*"
+r-dplyr = "*"
+r-readr = "*"
+r-stringr = "*"
+r-tibble = "*"
+r-tidyr = "*"
+r-ggrepel = "*"
+r-tidygraph = "*"
+r-ggraph = "*"
+cairo = ">=1.18.4,<2"
+expat = ">=2.7.4,<3"
+
 [tasks]
 # R package installation
 install-r-packages = "R -q -e \"install.packages(c('ROCR','pROC','cutpointr','coefplot','caret','yaml','ggplot2','pheatmap','svglite','tiff','reshape2','gridExtra'), repos='https://cloud.r-project.org')\""
+install-bioconductor = "R -q -e \"if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org'); BiocManager::install(c('clusterProfiler','org.Hs.eg.db','enrichplot','ReactomePA'), ask=FALSE, update=FALSE)\""
 
 # R analysis workflow
 # Note: config file should be specified via --config argument

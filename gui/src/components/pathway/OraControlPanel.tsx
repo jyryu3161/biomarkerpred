@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { useOraStore } from "@/stores/oraStore";
+import { useConfigStore } from "@/stores/configStore";
 import { readTextFile, runOra, cancelOra } from "@/lib/tauri/commands";
 
 /** Extract all unique genes from auc_iterations.csv */
@@ -63,6 +64,7 @@ function parseGenesFromStepwiseCsv(raw: string): string[] {
 export function OraControlPanel() {
   const outputDir = useAnalysisStore((s) => s.outputDir);
   const analysisStatus = useAnalysisStore((s) => s.status);
+  const backend = useConfigStore((s) => s.backend);
   const oraStatus = useOraStore((s) => s.status);
   const ppiConfidence = useOraStore((s) => s.ppiConfidence);
   const setPpiConfidence = useOraStore((s) => s.setPpiConfidence);
@@ -114,7 +116,7 @@ export function OraControlPanel() {
     appendLog(`Starting pathway analysis with ${genes.length} candidate genes...`);
 
     try {
-      await runOra(genes, pathwayDir, ppiConfidence, 9606);
+      await runOra(genes, pathwayDir, ppiConfidence, 9606, backend);
     } catch (e) {
       appendLog(`Failed to start: ${e}`);
       setStatus("failed");
