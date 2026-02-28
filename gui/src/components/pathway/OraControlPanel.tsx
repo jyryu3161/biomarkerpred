@@ -4,7 +4,7 @@ import { useOraStore } from "@/stores/oraStore";
 import { readTextFile, runOra, cancelOra } from "@/lib/tauri/commands";
 
 /** Extract all unique genes from auc_iterations.csv */
-function parseGenesFromCsv(raw: string): string[] {
+function parseGenesFromAucCsv(raw: string): string[] {
   const lines = raw.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
 
@@ -31,6 +31,35 @@ function parseGenesFromCsv(raw: string): string[] {
   return Array.from(allGenes).sort();
 }
 
+/**
+ * Extract genes from Final_Stepwise_Total.csv
+ * Format: Variable column contains "GENE1 + GENE2 + GENE3"
+ */
+function parseGenesFromStepwiseCsv(raw: string): string[] {
+  const lines = raw.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const unquote = (s: string) => s.trim().replace(/^"(.*)"$/, "$1");
+  const headers = lines[0]
+    .split(",")
+    .map((h) => unquote(h).toLowerCase());
+
+  const varCol = headers.indexOf("variable");
+  if (varCol === -1) return [];
+
+  const allGenes = new Set<string>();
+  for (let i = 1; i < lines.length; i++) {
+    const fields = lines[i].split(",").map(unquote);
+    const varStr = fields[varCol] ?? "";
+    // Split by " + " (gene formula format)
+    for (const g of varStr.split(/\s*\+\s*/)) {
+      const trimmed = g.trim();
+      if (trimmed) allGenes.add(trimmed);
+    }
+  }
+  return Array.from(allGenes).sort();
+}
+
 export function OraControlPanel() {
   const outputDir = useAnalysisStore((s) => s.outputDir);
   const analysisStatus = useAnalysisStore((s) => s.status);
@@ -46,16 +75,30 @@ export function OraControlPanel() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  // Load genes from auc_iterations.csv when analysis completes
+  // Load genes: try auc_iterations.csv first, fallback to Final_Stepwise_Total.csv
   useEffect(() => {
     if (!outputDir || analysisStatus !== "completed") {
       setGenes([]);
       return;
     }
     setLoading(true);
+
+    // Try auc_iterations.csv first
     readTextFile(`${outputDir}/auc_iterations.csv`)
-      .then((content) => setGenes(parseGenesFromCsv(content)))
-      .catch(() => setGenes([]))
+      .then((content) => {
+        const parsed = parseGenesFromAucCsv(content);
+        if (parsed.length > 0) {
+          setGenes(parsed);
+          return;
+        }
+        throw new Error("empty");
+      })
+      .catch(() => {
+        // Fallback: Final_Stepwise_Total.csv (Variable column: "GENE1 + GENE2 + GENE3")
+        return readTextFile(`${outputDir}/StepBin/Final_Stepwise_Total.csv`)
+          .then((content) => setGenes(parseGenesFromStepwiseCsv(content)))
+          .catch(() => setGenes([]));
+      })
       .finally(() => setLoading(false));
   }, [outputDir, analysisStatus]);
 

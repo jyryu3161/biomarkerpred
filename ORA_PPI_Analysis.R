@@ -181,6 +181,22 @@ parse_gene_string <- function(gene_str) {
   unique(genes)
 }
 
+extract_genes_from_stepwise <- function(csv_path) {
+  if (!file.exists(csv_path)) {
+    return(character())
+  }
+  dat <- readr::read_csv(csv_path, show_col_types = FALSE)
+  if (!"Variable" %in% colnames(dat)) {
+    return(character())
+  }
+  vars <- dat$Variable
+  vars <- vars[!is.na(vars) & nzchar(vars)]
+  if (length(vars) == 0) return(character())
+  # Variable format: "GENE1 + GENE2 + GENE3"
+  genes <- unique(trimws(unlist(strsplit(paste(vars, collapse = " + "), "\\s*\\+\\s*"))))
+  genes[nzchar(genes)]
+}
+
 # --------------------------------------------------------------------------
 # STRING API PPI fetch
 # --------------------------------------------------------------------------
@@ -516,7 +532,24 @@ main <- function() {
   candidate_genes <- if (!is.null(params$genes) && nzchar(params$genes)) {
     parse_gene_string(params$genes)
   } else if (!is.null(params$input) && nzchar(params$input)) {
-    extract_genes_from_csv(params$input)
+    # Try auc_iterations.csv format first
+    genes <- tryCatch(extract_genes_from_csv(params$input), error = function(e) character())
+    # Fallback: try Final_Stepwise_Total.csv in same directory or StepBin subdirectory
+    if (length(genes) == 0) {
+      input_dir <- dirname(params$input)
+      stepwise_candidates <- c(
+        file.path(input_dir, "StepBin", "Final_Stepwise_Total.csv"),
+        file.path(input_dir, "Final_Stepwise_Total.csv")
+      )
+      for (sf in stepwise_candidates) {
+        genes <- extract_genes_from_stepwise(sf)
+        if (length(genes) > 0) {
+          log_info(sprintf("Extracted genes from stepwise results: %s", sf))
+          break
+        }
+      }
+    }
+    genes
   } else {
     stop("Either --genes or --input must be provided")
   }
