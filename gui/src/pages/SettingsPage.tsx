@@ -92,7 +92,7 @@ export function SettingsPage() {
         <h3 className="text-sm font-medium">About</h3>
         <div className="text-sm text-muted-foreground space-y-1">
           <p>RESPRED{version ? ` v${version}` : ""}</p>
-          <p>PROgnostic Marker Identification and Survival Evaluation</p>
+          <p>Drug Response Biomarker Prediction Platform</p>
           <p>Cross-platform desktop application powered by Tauri + Docker</p>
         </div>
       </section>

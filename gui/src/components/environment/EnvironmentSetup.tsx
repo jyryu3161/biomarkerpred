@@ -98,7 +98,7 @@ export function EnvironmentSetup() {
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold tracking-tight">RESPRED</h1>
           <p className="text-sm text-muted-foreground">
-            PROgnostic Marker Identification and Survival Evaluation
+            Drug Response Biomarker Prediction Platform
           </p>
         </div>
 
