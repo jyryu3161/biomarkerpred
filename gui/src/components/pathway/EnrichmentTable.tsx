@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { readTextFile } from "@/lib/tauri/commands";
-import type { EnrichmentCategory, EnrichmentTerm } from "@/types/pathway";
+import type { EnrichmentTerm } from "@/types/pathway";
 import { ENRICHMENT_LABELS } from "@/types/pathway";
 import { useOraStore } from "@/stores/oraStore";
 
