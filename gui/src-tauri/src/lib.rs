@@ -2,6 +2,7 @@ mod commands;
 mod models;
 
 use commands::analysis::AnalysisProcess;
+use commands::ora::OraProcess;
 use commands::setup::SetupProcess;
 use std::sync::Mutex;
 
@@ -20,6 +21,9 @@ pub fn run() {
             Ok(())
         })
         .manage(AnalysisProcess {
+            child: Mutex::new(None),
+        })
+        .manage(OraProcess {
             child: Mutex::new(None),
         })
         .manage(SetupProcess {
@@ -54,6 +58,9 @@ pub fn run() {
             commands::opentargets::opentargets_count_filtered,
             // Runtime
             commands::runtime::runtime_check_deps,
+            // ORA / Pathway Analysis
+            commands::ora::ora_run,
+            commands::ora::ora_cancel,
             // Setup
             commands::setup::setup_check_env,
             commands::setup::setup_install_env,

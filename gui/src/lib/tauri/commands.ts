@@ -114,6 +114,20 @@ export async function countFilteredGenes(
   });
 }
 
+// ORA / Pathway Analysis
+export async function runOra(
+  genes: string[],
+  outputDir: string,
+  ppiConfidence: number,
+  organism: number,
+): Promise<void> {
+  return invoke("ora_run", { genes, outputDir, ppiConfidence, organism });
+}
+
+export async function cancelOra(): Promise<void> {
+  return invoke("ora_cancel");
+}
+
 // Setup / Environment
 export async function checkEnv(): Promise<EnvStatus> {
   return invoke<EnvStatus>("setup_check_env");

@@ -3,9 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { Sidebar, type Page } from "@/components/layout/Sidebar";
 import { SetupPage } from "@/pages/SetupPage";
 import { ResultsPage } from "@/pages/ResultsPage";
+import { PathwayAnalysisPage } from "@/pages/PathwayAnalysisPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { EnvironmentSetup } from "@/components/environment/EnvironmentSetup";
 import { useAnalysisStore } from "@/stores/analysisStore";
+import { useOraStore } from "@/stores/oraStore";
 import { useConfigStore } from "@/stores/configStore";
 import { checkEnv, checkImageUpdate, pullDockerImage } from "@/lib/tauri/commands";
 
@@ -157,10 +159,45 @@ function App() {
       },
     ).then((u) => unlisten.push(u));
 
+    // ORA / Pathway Analysis events
+    listen<string>("ora://log", (event) => {
+      useOraStore.getState().appendLog(event.payload);
+    }).then((u) => unlisten.push(u));
+
+    listen<{ type: string; current: number; total: number; message: string }>(
+      "ora://progress",
+      (event) => {
+        const { current, total, message } = event.payload;
+        useOraStore.getState().setProgress(current, total, message);
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ success: boolean; code: number | null }>(
+      "ora://complete",
+      (event) => {
+        const store = useOraStore.getState();
+        const { success, code } = event.payload;
+        store.appendLog(
+          success
+            ? "Pathway analysis completed successfully"
+            : `Pathway analysis failed (exit code ${code})`,
+        );
+        store.setStatus(success ? "completed" : "failed");
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ message: string }>("ora://error", (event) => {
+      const store = useOraStore.getState();
+      store.appendLog(`Error: ${event.payload.message}`);
+      store.setStatus("failed");
+    }).then((u) => unlisten.push(u));
+
     return () => {
       unlisten.forEach((u) => u());
     };
   }, []);
+
+  const oraStatus = useOraStore((s) => s.status);
 
   // Environment gate: show setup screen if env not ready
   if (!showMain) {
@@ -177,6 +214,7 @@ function App() {
         currentPage={currentPage}
         onPageChange={setCurrentPage}
         analysisRunning={hasResults}
+        oraRunning={oraStatus === "running"}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Image update banner */}
@@ -231,6 +269,7 @@ function App() {
 
         {currentPage === "setup" && <SetupPage />}
         {currentPage === "results" && <ResultsPage />}
+        {currentPage === "pathway" && <PathwayAnalysisPage />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>

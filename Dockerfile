@@ -27,11 +27,22 @@ RUN R -e "install.packages(c( \
     'reshape2', 'gridExtra', 'pheatmap' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
+# Bioconductor packages for pathway analysis (ORA + PPI)
+RUN R -e "install.packages('BiocManager', repos='https://cloud.r-project.org')" && \
+    R -e "BiocManager::install(c('clusterProfiler', 'org.Hs.eg.db', 'enrichplot', 'ReactomePA'), ask=FALSE, update=FALSE)"
+
+# Additional CRAN packages for ORA/PPI
+RUN R -e "install.packages(c( \
+    'httr', 'jsonlite', 'igraph', 'tidygraph', 'ggraph', \
+    'dplyr', 'readr', 'stringr', 'tibble' \
+  ), repos='https://cloud.r-project.org', Ncpus=4)"
+
 WORKDIR /app
 
 # Copy R scripts
 COPY Main_Binary.R \
      Binary_TrainAUC_StepwiseSelection.R \
+     ORA_PPI_Analysis.R \
      ./
 
 # Copy entrypoint

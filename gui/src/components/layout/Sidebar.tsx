@@ -2,21 +2,23 @@ import { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { cn } from "@/lib/utils";
 
-export type Page = "setup" | "results" | "settings";
+export type Page = "setup" | "results" | "pathway" | "settings";
 
 interface SidebarProps {
   currentPage: Page;
   onPageChange: (page: Page) => void;
   analysisRunning: boolean;
+  oraRunning?: boolean;
 }
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "setup", label: "Setup", icon: "⚙️" },
   { id: "results", label: "Results", icon: "📊" },
+  { id: "pathway", label: "Pathway Analysis", icon: "🧬" },
   { id: "settings", label: "Settings", icon: "🔧" },
 ];
 
-export function Sidebar({ currentPage, onPageChange, analysisRunning }: SidebarProps) {
+export function Sidebar({ currentPage, onPageChange, analysisRunning, oraRunning }: SidebarProps) {
   const [version, setVersion] = useState<string>("");
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(""));
@@ -43,6 +45,9 @@ export function Sidebar({ currentPage, onPageChange, analysisRunning }: SidebarP
             <span>{item.icon}</span>
             <span>{item.label}</span>
             {item.id === "results" && analysisRunning && (
+              <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+            )}
+            {item.id === "pathway" && oraRunning && (
               <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
             )}
           </button>
