@@ -40,14 +40,14 @@ if [[ -f "$PIXI" ]]; then
   echo "  Updated pixi.toml"
 fi
 
-# 2. gui/package.json
+# 2. gui/package.json (use env vars to avoid path escaping issues on Windows)
 PKG="$REPO_ROOT/gui/package.json"
 if [[ -f "$PKG" ]]; then
-  node -e "
+  SYNC_FILE="$PKG" SYNC_VER="$VERSION" node -e "
     const fs = require('fs');
-    const pkg = JSON.parse(fs.readFileSync('$PKG', 'utf8'));
-    pkg.version = '$VERSION';
-    fs.writeFileSync('$PKG', JSON.stringify(pkg, null, 2) + '\n');
+    const pkg = JSON.parse(fs.readFileSync(process.env.SYNC_FILE, 'utf8'));
+    pkg.version = process.env.SYNC_VER;
+    fs.writeFileSync(process.env.SYNC_FILE, JSON.stringify(pkg, null, 2) + '\n');
   "
   echo "  Updated gui/package.json"
 fi
@@ -55,12 +55,12 @@ fi
 # 3. gui/package-lock.json (top-level version entries only)
 LOCK="$REPO_ROOT/gui/package-lock.json"
 if [[ -f "$LOCK" ]]; then
-  node -e "
+  SYNC_FILE="$LOCK" SYNC_VER="$VERSION" node -e "
     const fs = require('fs');
-    const lock = JSON.parse(fs.readFileSync('$LOCK', 'utf8'));
-    if (lock.version) lock.version = '$VERSION';
-    if (lock.packages && lock.packages['']) lock.packages[''].version = '$VERSION';
-    fs.writeFileSync('$LOCK', JSON.stringify(lock, null, 2) + '\n');
+    const lock = JSON.parse(fs.readFileSync(process.env.SYNC_FILE, 'utf8'));
+    if (lock.version) lock.version = process.env.SYNC_VER;
+    if (lock.packages && lock.packages['']) lock.packages[''].version = process.env.SYNC_VER;
+    fs.writeFileSync(process.env.SYNC_FILE, JSON.stringify(lock, null, 2) + '\n');
   "
   echo "  Updated gui/package-lock.json"
 fi
