@@ -54,6 +54,24 @@ suppressPackageStartupMessages({
 
 options(stringsAsFactors = FALSE)
 
+# Font setup: prefer Arial, fall back to sans if not available
+PLOT_FONT <- tryCatch({
+  fonts <- systemfonts::system_fonts()
+  if (any(grepl("Arial", fonts$family, ignore.case = TRUE))) {
+    "Arial"
+  } else if (any(grepl("Helvetica", fonts$family, ignore.case = TRUE))) {
+    "Helvetica"
+  } else {
+    "sans"
+  }
+}, error = function(e) {
+  if (.Platform$OS.type == "unix" && !grepl("darwin", R.version$os)) {
+    "sans"  # Linux (Docker) - Arial may not exist
+  } else {
+    "Arial"  # macOS/Windows
+  }
+})
+
 # --------------------------------------------------------------------------
 # Helper functions
 # --------------------------------------------------------------------------
@@ -184,7 +202,7 @@ export_network_plot <- function(edges, nodes, output_file, threshold) {
   plot <- ggraph::ggraph(layout) +
     ggraph::geom_edge_link(aes(color = correlation), show.legend = TRUE, width = 0.6) +
     ggraph::geom_node_point(aes(shape = type, color = type), size = 3) +
-    ggraph::geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    ggraph::geom_node_text(aes(label = name), repel = TRUE, size = 3, family = PLOT_FONT) +
     scale_edge_color_gradient2(
       low = "#2c7bb6", mid = "#f7f7f7", high = "#d7191c", midpoint = 0,
       name = "Correlation"
@@ -196,7 +214,7 @@ export_network_plot <- function(edges, nodes, output_file, threshold) {
       subtitle = sprintf("Absolute Pearson correlation ≥ %.2f", threshold),
       color = "Gene type", shape = "Gene type"
     ) +
-    theme_minimal()
+    theme_minimal(base_family = PLOT_FONT)
 
   ggplot2::ggsave(output_file, plot, width = 8, height = 6, dpi = 300)
 }
@@ -245,7 +263,7 @@ export_go_plot <- function(go_results, output_file) {
     return(invisible(NULL))
   }
   plot <- enrichplot::dotplot(go_results, showCategory = 20) +
-    ggplot2::theme_minimal() +
+    ggplot2::theme_minimal(base_family = PLOT_FONT) +
     ggplot2::labs(title = "GO Biological Process enrichment")
   ggplot2::ggsave(output_file, plot, width = 8, height = 6, dpi = 300)
 }

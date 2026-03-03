@@ -50,7 +50,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("RESPRED")).toBeDefined();
     await waitFor(() => {
-      expect(screen.getByText("v0.2.0")).toBeDefined();
+      expect(screen.getByText("v0.3.0")).toBeDefined();
     });
   });
 

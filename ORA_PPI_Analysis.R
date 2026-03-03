@@ -30,6 +30,24 @@ suppressPackageStartupMessages({
 
 options(stringsAsFactors = FALSE)
 
+# Font setup: prefer Arial, fall back to sans if not available
+PLOT_FONT <- tryCatch({
+  fonts <- systemfonts::system_fonts()
+  if (any(grepl("Arial", fonts$family, ignore.case = TRUE))) {
+    "Arial"
+  } else if (any(grepl("Helvetica", fonts$family, ignore.case = TRUE))) {
+    "Helvetica"
+  } else {
+    "sans"
+  }
+}, error = function(e) {
+  if (.Platform$OS.type == "unix" && !grepl("darwin", R.version$os)) {
+    "sans"  # Linux (Docker) - Arial may not exist
+  } else {
+    "Arial"  # macOS/Windows
+  }
+})
+
 # --------------------------------------------------------------------------
 # Logging helpers
 # --------------------------------------------------------------------------
@@ -370,7 +388,7 @@ generate_enrichment_plots <- function(result, name, fig_dir) {
   # Dotplot
   tryCatch({
     p <- enrichplot::dotplot(result, showCategory = 20) +
-      ggplot2::theme_minimal(base_family = "Arial") +
+      ggplot2::theme_minimal(base_family = PLOT_FONT) +
       ggplot2::labs(title = sprintf("%s Enrichment", toupper(name)))
     save_dual_format(p, file.path(fig_dir, paste0(name, "_dotplot")))
   }, error = function(e) log_warn(sprintf("dotplot failed for %s: %s", name, e$message)))
@@ -379,7 +397,7 @@ generate_enrichment_plots <- function(result, name, fig_dir) {
   if (grepl("go_bp", name)) {
     tryCatch({
       p <- barplot(result, showCategory = 15) +
-        ggplot2::theme_minimal(base_family = "Arial") +
+        ggplot2::theme_minimal(base_family = PLOT_FONT) +
         ggplot2::labs(title = "GO Biological Process Enrichment")
       save_dual_format(p, file.path(fig_dir, paste0(name, "_barplot")))
     }, error = function(e) log_warn(sprintf("barplot failed for %s: %s", name, e$message)))
@@ -391,7 +409,7 @@ generate_cnetplot <- function(result, fig_dir) {
 
   tryCatch({
     p <- enrichplot::cnetplot(result, showCategory = 10, circular = FALSE) +
-      ggplot2::theme_void(base_family = "Arial") +
+      ggplot2::theme_void(base_family = PLOT_FONT) +
       ggplot2::labs(title = "Gene-Pathway Network (GO:BP)")
     save_dual_format(p, file.path(fig_dir, "cnetplot"), width = 12, height = 10)
   }, error = function(e) log_warn(sprintf("cnetplot failed: %s", e$message)))
@@ -403,7 +421,7 @@ generate_emapplot <- function(result, fig_dir) {
   tryCatch({
     result_sim <- enrichplot::pairwise_termsim(result)
     p <- enrichplot::emapplot(result_sim, showCategory = 30) +
-      ggplot2::theme_void(base_family = "Arial") +
+      ggplot2::theme_void(base_family = PLOT_FONT) +
       ggplot2::labs(title = "Pathway Similarity Network (GO:BP)")
     save_dual_format(p, file.path(fig_dir, "emapplot"), width = 12, height = 10)
   }, error = function(e) log_warn(sprintf("emapplot failed: %s", e$message)))
@@ -443,7 +461,7 @@ generate_ppi_network_plot <- function(edges, candidate_genes, all_genes, fig_dir
     p <- ggraph::ggraph(layout) +
       ggraph::geom_edge_link(aes(alpha = after_stat(index)), show.legend = FALSE, width = 0.4, colour = "grey60") +
       ggraph::geom_node_point(aes(shape = type, colour = type), size = 3.5) +
-      ggraph::geom_node_text(aes(label = name), repel = TRUE, size = 2.8, family = "Arial") +
+      ggraph::geom_node_text(aes(label = name), repel = TRUE, size = 2.8, family = PLOT_FONT) +
       scale_colour_manual(values = c("Candidate" = "#d7191c", "PPI Interactor" = "#2c7bb6")) +
       scale_shape_manual(values = c("Candidate" = 17, "PPI Interactor" = 19)) +
       labs(
@@ -453,7 +471,7 @@ generate_ppi_network_plot <- function(edges, candidate_genes, all_genes, fig_dir
                            sum(nodes$type == "PPI Interactor")),
         colour = "Gene Type", shape = "Gene Type"
       ) +
-      theme_void(base_family = "Arial") +
+      theme_void(base_family = PLOT_FONT) +
       theme(legend.position = "bottom")
     save_dual_format(p, file.path(fig_dir, "ppi_network"), width = 12, height = 10)
   }, error = function(e) log_warn(sprintf("PPI network plot failed: %s", e$message)))

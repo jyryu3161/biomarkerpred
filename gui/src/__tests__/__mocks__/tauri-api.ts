@@ -9,7 +9,7 @@ export function listen(_event: string, _handler: (...args: unknown[]) => void) {
 
 // Mock @tauri-apps/api/app
 export function getVersion() {
-  return Promise.resolve("0.2.0");
+  return Promise.resolve("0.3.0");
 }
 
 export function getName() {

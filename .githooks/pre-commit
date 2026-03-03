@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# pre-commit hook: auto-sync version files to the latest git tag.
+# If no tag exists, skip silently.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT="$REPO_ROOT/scripts/sync-version.sh"
+
+if [[ ! -x "$SCRIPT" ]]; then
+  exit 0
+fi
+
+TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+if [[ -z "$TAG" ]]; then
+  exit 0
+fi
+
+VERSION="${TAG#v}"
+
+# Check if any version file is already correct — skip if nothing to do
+CURRENT=$(grep -m1 '^version = ' "$REPO_ROOT/pixi.toml" 2>/dev/null | sed 's/version = "\(.*\)"/\1/')
+if [[ "$CURRENT" == "$VERSION" ]]; then
+  exit 0
+fi
+
+# Run sync and stage changed files
+"$SCRIPT" "$VERSION" >/dev/null 2>&1
+
+VERSION_FILES=(
+  "pixi.toml"
+  "gui/package.json"
+  "gui/package-lock.json"
+  "gui/src-tauri/Cargo.toml"
+)
+
+for f in "${VERSION_FILES[@]}"; do
+  if [[ -f "$REPO_ROOT/$f" ]] && ! git diff --quiet -- "$REPO_ROOT/$f" 2>/dev/null; then
+    git add "$REPO_ROOT/$f"
+  fi
+done

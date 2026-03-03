@@ -51,6 +51,11 @@ jobs:
         working-directory: gui
         run: npm ci
 
+      - name: Sync version from tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: ./scripts/sync-version.sh "${{ github.ref_name }}"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
