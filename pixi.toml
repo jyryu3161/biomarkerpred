@@ -1,6 +1,6 @@
 [workspace]
 name = "respred"
-version = "0.3.0"
+version = "0.3.1"
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 

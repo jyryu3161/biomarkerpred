@@ -401,6 +401,9 @@ export function AdvancedOptionsSection() {
                 <label className="text-xs font-medium text-muted-foreground">
                   Score Threshold
                 </label>
+                <p className="text-xs text-muted-foreground/70">
+                  Open Targets association score (0–1). Genes scoring ≥ this value are included.
+                </p>
                 <input
                   type="number"
                   value={evidenceScoreThreshold}
