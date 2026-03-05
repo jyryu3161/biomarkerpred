@@ -1,7 +1,7 @@
 FROM condaforge/mambaforge:latest AS builder
 
-# Install R + all packages via conda (pre-compiled, no version conflicts)
-RUN mamba install -y -c conda-forge -c bioconda \
+# Install R + CRAN packages via conda
+RUN mamba install -y -c conda-forge \
     r-base=4.3 \
     r-yaml r-ggplot2 r-caret r-rocr r-proc r-svglite \
     r-reshape2 r-gridextra r-pheatmap \
@@ -9,11 +9,17 @@ RUN mamba install -y -c conda-forge -c bioconda \
     r-dplyr r-readr r-stringr r-tibble r-tidyr \
     r-survival r-lme4 \
     r-locfit r-zoo \
-    bioconductor-clusterprofiler \
-    bioconductor-org.hs.eg.db \
-    bioconductor-enrichplot \
-    bioconductor-reactomepa \
     && mamba clean -afy
+
+# Install Bioconductor packages separately (retry on transient failures)
+RUN for i in 1 2 3; do \
+      mamba install -y -c conda-forge -c bioconda \
+        bioconductor-clusterprofiler \
+        bioconductor-org.hs.eg.db \
+        bioconductor-enrichplot \
+        bioconductor-reactomepa \
+      && break || echo "Retry $i..."; \
+    done && mamba clean -afy
 
 # Install remaining CRAN packages not in conda-forge
 RUN R -e "install.packages(c('cutpointr','coefplot','tiff','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
