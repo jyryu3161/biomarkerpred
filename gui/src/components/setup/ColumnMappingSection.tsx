@@ -127,9 +127,12 @@ function ColumnSelect({
 }
 
 export function ColumnMappingSection() {
+  const analysisType = useAnalysisStore((s) => s.analysisType);
   const dataInfo = useAnalysisStore((s) => s.dataInfo);
   const sampleId = useAnalysisStore((s) => s.sampleId);
   const outcome = useAnalysisStore((s) => s.outcome);
+  const event = useAnalysisStore((s) => s.event);
+  const timeVariable = useAnalysisStore((s) => s.timeVariable);
   const setColumnMapping = useAnalysisStore((s) => s.setColumnMapping);
 
   const columns = dataInfo?.columns ?? [];
@@ -151,11 +154,28 @@ export function ColumnMappingSection() {
             onChange={(v) => setColumnMapping("sampleId", v)}
           />
 
+          {analysisType === "binary" ? (
+            <ColumnSelect
+              label="Response (0/1)"
+              value={outcome}
+              columns={columns}
+              onChange={(v) => setColumnMapping("outcome", v)}
+            />
+          ) : (
+            <ColumnSelect
+              label="Event (0/1)"
+              value={event}
+              columns={columns}
+              onChange={(v) => setColumnMapping("event", v)}
+            />
+          )}
+
           <ColumnSelect
-            label="Response (0/1)"
-            value={outcome}
+            label="Time Variable"
+            value={timeVariable}
             columns={columns}
-            onChange={(v) => setColumnMapping("outcome", v)}
+            onChange={(v) => setColumnMapping("timeVariable", v)}
+            optional={analysisType === "binary"}
           />
         </div>
       )}

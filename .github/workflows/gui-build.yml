@@ -78,7 +78,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           APP_DIR="gui/src-tauri/target/universal-apple-darwin/release/bundle/macos"
-          APP_PATH="$APP_DIR/RESPRED.app"
+          APP_PATH="$APP_DIR/BioMarkerPred.app"
           if [ -d "$APP_PATH" ]; then
             echo "Removing existing signature..."
             codesign --remove-signature "$APP_PATH" || true
@@ -96,13 +96,13 @@ jobs:
         run: |
           BUNDLE_DIR="gui/src-tauri/target/universal-apple-darwin/release/bundle"
           DMG_PATH=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" | head -1)
-          APP_PATH="$BUNDLE_DIR/macos/RESPRED.app"
+          APP_PATH="$BUNDLE_DIR/macos/BioMarkerPred.app"
           if [ -n "$DMG_PATH" ] && [ -d "$APP_PATH" ]; then
             echo "Recreating DMG with re-signed app..."
             echo "  DMG: $DMG_PATH"
             echo "  APP: $APP_PATH"
             rm "$DMG_PATH"
-            hdiutil create -volname "RESPRED" -srcfolder "$APP_PATH" \
+            hdiutil create -volname "BioMarkerPred" -srcfolder "$APP_PATH" \
               -ov -format UDZO "$DMG_PATH"
             echo "DMG recreated successfully"
           else
@@ -114,7 +114,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: RESPRED-${{ matrix.label }}
+          name: BioMarkerPred-${{ matrix.label }}
           path: |
             gui/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             gui/src-tauri/target/release/bundle/dmg/*.dmg
@@ -143,9 +143,9 @@ jobs:
         run: |
           gh release create ${{ github.ref_name }} \
             --repo ${{ github.repository }} \
-            --title "RESPRED ${{ github.ref_name }}" \
+            --title "BioMarkerPred ${{ github.ref_name }}" \
             --draft \
-            --notes "RESPRED — Drug Response Biomarker Prediction Platform
+            --notes "BioMarkerPred — Biomarker Prediction Platform
 
           Download the installer for your platform:
           - **macOS**: \`.dmg\` (Universal — Apple Silicon + Intel)

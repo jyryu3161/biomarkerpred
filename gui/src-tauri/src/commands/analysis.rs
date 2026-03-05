@@ -168,7 +168,7 @@ pub async fn analysis_run(
 
     let tmp_dir = std::env::temp_dir();
     let config_path = tmp_dir.join(format!(
-        "respred_{}.yaml",
+        "biomarkerpred_{}.yaml",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -268,8 +268,8 @@ pub async fn analysis_run(
         .map_err(|e| String::from(AppError::runtime_not_found(&format!("Failed to start R: {} (tried: {})", e, cmd_program))))?;
 
     // Emit log showing which R runtime is being used
-    let _ = app.emit("analysis://log", format!("[RESPRED] Using R: {}", cmd_program));
-    let _ = app.emit("analysis://log", format!("[RESPRED] Working dir: {}", project_root.display()));
+    let _ = app.emit("analysis://log", format!("[BioMarkerPred] Using R: {}", cmd_program));
+    let _ = app.emit("analysis://log", format!("[BioMarkerPred] Working dir: {}", project_root.display()));
 
     // Store PID for cancellation
     let pid = child.id();
@@ -470,7 +470,7 @@ async fn run_via_docker(
 
     let tmp_dir = std::env::temp_dir();
     let docker_config_path = tmp_dir.join(format!(
-        "respred_docker_{}.yaml",
+        "biomarkerpred_docker_{}.yaml",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -508,11 +508,11 @@ async fn run_via_docker(
         }
     }
 
-    docker_args.push("jyryu3161/respred".to_string());
+    docker_args.push("jyryu3161/biomarkerpred".to_string());
     docker_args.push(analysis_type.to_string());
     docker_args.push("--config=/config.yaml".to_string());
 
-    let _ = app.emit("analysis://log", format!("[RESPRED] Docker mode: docker {}", docker_args.join(" ")));
+    let _ = app.emit("analysis://log", format!("[BioMarkerPred] Docker mode: docker {}", docker_args.join(" ")));
 
     let mut child = hide_console(std::process::Command::new(&find_docker()))
         .args(&docker_args)

@@ -292,7 +292,7 @@ async fn run_ora_docker(
         "--rm".to_string(),
         "-v".to_string(),
         format!("{}:/output", docker_path(&output_path)),
-        "jyryu3161/respred".to_string(),
+        "jyryu3161/biomarkerpred".to_string(),
         "ora".to_string(),
         format!("--genes={}", genes_str),
         "--output-dir=/output".to_string(),

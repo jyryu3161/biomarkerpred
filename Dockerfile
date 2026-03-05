@@ -7,6 +7,8 @@ RUN mamba install -y -c conda-forge -c bioconda \
     r-reshape2 r-gridextra r-pheatmap \
     r-httr r-jsonlite r-igraph r-tidygraph r-ggraph r-ggrepel \
     r-dplyr r-readr r-stringr r-tibble r-tidyr \
+    r-survival r-lme4 \
+    r-locfit r-zoo \
     bioconductor-clusterprofiler \
     bioconductor-org.hs.eg.db \
     bioconductor-enrichplot \
@@ -14,7 +16,7 @@ RUN mamba install -y -c conda-forge -c bioconda \
     && mamba clean -afy
 
 # Install remaining CRAN packages not in conda-forge
-RUN R -e "install.packages(c('cutpointr','coefplot','tiff'), repos='https://cloud.r-project.org', Ncpus=4)"
+RUN R -e "install.packages(c('cutpointr','coefplot','tiff','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
 
 # Verify
 COPY install_bioc.R /tmp/install_bioc.R
@@ -27,14 +29,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && fc-cache -fv
 
 LABEL maintainer="jyryu3161"
-LABEL description="RESPRED - RESponse PREDiction"
-LABEL version="0.3.0"
-LABEL changelog="v0.3.0: Add ORA pathway analysis with PPI integration (clusterProfiler, ReactomePA, STRING DB)"
+LABEL description="BioMarkerPred - Biomarker Prediction Platform"
+LABEL version="0.3.3"
+LABEL changelog="v0.3.3: Add survival/prognosis analysis, fix nsROC dependency, rename to BioMarkerPred"
 
 WORKDIR /app
 
 COPY Main_Binary.R \
      Binary_TrainAUC_StepwiseSelection.R \
+     Main_Survival.R \
+     Survival_TrainAUC_StepwiseSelection.R \
      ORA_PPI_Analysis.R \
      ./
 

@@ -96,9 +96,9 @@ export function EnvironmentSetup() {
       <div className="w-full max-w-lg space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight">RESPRED</h1>
+          <h1 className="text-2xl font-bold tracking-tight">BioMarkerPred</h1>
           <p className="text-sm text-muted-foreground">
-            Drug Response Biomarker Prediction Platform
+            Biomarker Prediction Platform
           </p>
         </div>
 
@@ -148,7 +148,7 @@ export function EnvironmentSetup() {
           <section className="border border-amber-500/30 bg-amber-500/5 rounded-lg p-4 space-y-3">
             <h3 className="text-sm font-medium">Docker Desktop Required</h3>
             <p className="text-xs text-muted-foreground">
-              RESPRED uses Docker to run analyses. Please install Docker Desktop and make sure it is running.
+              BioMarkerPred uses Docker to run analyses. Please install Docker Desktop and make sure it is running.
             </p>
             <a
               href="https://www.docker.com/products/docker-desktop/"
@@ -174,7 +174,7 @@ export function EnvironmentSetup() {
               Download Analysis Image
             </button>
             <p className="text-xs text-center text-muted-foreground">
-              Downloads the RESPRED analysis engine (~1-2 GB, one-time)
+              Downloads the BioMarkerPred analysis engine (~1-2 GB, one-time)
             </p>
           </section>
         )}
@@ -193,7 +193,7 @@ export function EnvironmentSetup() {
         {(setupStatus === "completed" || dockerOk) && setupStatus !== "idle" && (
           <div className="border border-green-500/30 bg-green-500/5 rounded-lg p-3 text-center">
             <p className="text-sm text-green-600 font-medium">
-              Ready! Starting RESPRED...
+              Ready! Starting BioMarkerPred...
             </p>
           </div>
         )}

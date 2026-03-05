@@ -47,7 +47,7 @@ pub async fn setup_check_env() -> Result<EnvStatus, String> {
 
     // 5. Check Docker image
     let docker_image_present = if docker_available {
-        check_docker_image("jyryu3161/respred")
+        check_docker_image("jyryu3161/biomarkerpred")
     } else {
         false
     };
@@ -214,11 +214,11 @@ pub async fn setup_pull_docker(
     app: tauri::AppHandle,
     state: State<'_, SetupProcess>,
 ) -> Result<(), String> {
-    let _ = app.emit("setup://log", "Pulling Docker image jyryu3161/respred...");
+    let _ = app.emit("setup://log", "Pulling Docker image jyryu3161/biomarkerpred...");
     let _ = app.emit("setup://progress", serde_json::json!({ "step": 1, "total": 1, "message": "Pulling Docker image..." }));
 
     let mut child = hide_console(std::process::Command::new(&find_docker()))
-        .args(["pull", "jyryu3161/respred"])
+        .args(["pull", "jyryu3161/biomarkerpred"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -254,7 +254,7 @@ pub async fn setup_check_image_update() -> Result<ImageUpdateStatus, String> {
         .args([
             "image",
             "inspect",
-            "jyryu3161/respred:latest",
+            "jyryu3161/biomarkerpred:latest",
             "--format",
             "{{index .RepoDigests 0}}",
         ])
@@ -276,7 +276,7 @@ pub async fn setup_check_image_update() -> Result<ImageUpdateStatus, String> {
     // 2. Fetch tag metadata from Docker Hub (no auth required for public images)
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        .user_agent("respred-desktop")
+        .user_agent("biomarkerpred-desktop")
         .build()
     {
         Ok(c) => c,
@@ -289,7 +289,7 @@ pub async fn setup_check_image_update() -> Result<ImageUpdateStatus, String> {
     };
 
     let resp = match client
-        .get("https://hub.docker.com/v2/repositories/jyryu3161/respred/tags/latest")
+        .get("https://hub.docker.com/v2/repositories/jyryu3161/biomarkerpred/tags/latest")
         .send()
         .await
     {

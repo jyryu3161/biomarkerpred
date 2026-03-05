@@ -63,7 +63,7 @@ jobs:
         with:
           projectPath: gui
           tagName: ${{ github.ref_name }}
-          releaseName: "RESPRED ${{ github.ref_name }}"
+          releaseName: "BioMarkerPred ${{ github.ref_name }}"
           releaseBody: "See the commits for changes in this release."
           releaseDraft: true
           prerelease: false
@@ -72,7 +72,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: respred-${{ matrix.label }}
+          name: biomarkerpred-${{ matrix.label }}
           path: |
             gui/src-tauri/target/release/bundle/dmg/*.dmg
             gui/src-tauri/target/release/bundle/macos/*.app

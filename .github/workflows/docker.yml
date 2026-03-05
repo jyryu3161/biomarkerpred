@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: jyryu3161/respred
+  DOCKER_IMAGE: jyryu3161/biomarkerpred
 
 jobs:
   build-and-push:

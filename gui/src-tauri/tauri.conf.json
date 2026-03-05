@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "RESPRED",
+  "productName": "BioMarkerPred",
   "version": "../package.json",
-  "identifier": "com.respred.desktop",
+  "identifier": "com.biomarkerpred.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "RESPRED",
+        "title": "BioMarkerPred",
         "width": 1200,
         "height": 800,
         "resizable": true,

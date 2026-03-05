@@ -61,7 +61,7 @@ export function SettingsPage() {
             <div className="flex justify-between">
               <span className="text-muted-foreground">Analysis Image:</span>
               <span className={envStatus.dockerImagePresent ? "text-green-600 text-xs" : "text-muted-foreground text-xs"}>
-                {envStatus.dockerImagePresent ? "Ready (jyryu3161/respred)" : "Not downloaded"}
+                {envStatus.dockerImagePresent ? "Ready (jyryu3161/biomarkerpred)" : "Not downloaded"}
               </span>
             </div>
           </div>
@@ -91,8 +91,8 @@ export function SettingsPage() {
       <section className="border border-border rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-medium">About</h3>
         <div className="text-sm text-muted-foreground space-y-1">
-          <p>RESPRED{version ? ` v${version}` : ""}</p>
-          <p>Drug Response Biomarker Prediction Platform</p>
+          <p>BioMarkerPred{version ? ` v${version}` : ""}</p>
+          <p>Biomarker Prediction Platform</p>
           <p>Cross-platform desktop application powered by Tauri + Docker</p>
         </div>
       </section>

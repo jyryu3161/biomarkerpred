@@ -6,19 +6,24 @@ case "$1" in
     shift
     exec Rscript /app/Main_Binary.R "$@"
     ;;
+  survival)
+    shift
+    exec Rscript /app/Main_Survival.R "$@"
+    ;;
   ora)
     shift
     exec Rscript /app/ORA_PPI_Analysis.R "$@"
     ;;
   --help|"")
-    echo "RESPRED - RESponse PREDiction"
+    echo "BioMarkerPred - Biomarker Prediction Platform"
     echo ""
     echo "Usage:"
-    echo "  docker run --rm -v \$(pwd):/work jyryu3161/respred binary --config=/work/config.yaml"
-    echo "  docker run --rm -v \$(pwd):/output jyryu3161/respred ora --genes='G1;G2' --output-dir=/output"
+    echo "  docker run --rm -v \$(pwd):/work jyryu3161/biomarkerpred binary --config=/work/config.yaml"
+    echo "  docker run --rm -v \$(pwd):/output jyryu3161/biomarkerpred ora --genes='G1;G2' --output-dir=/output"
     echo ""
     echo "Commands:"
     echo "  binary     Run drug response prediction (logistic regression)"
+    echo "  survival   Run prognosis/survival prediction (Cox regression)"
     echo "  ora        Run ORA pathway analysis with PPI integration"
     echo ""
     echo "Options:"
@@ -27,7 +32,7 @@ case "$1" in
     echo "  --output-dir     Output directory for results"
     echo ""
     echo "Example:"
-    echo "  docker run --rm -v \$(pwd):/work jyryu3161/respred \\"
+    echo "  docker run --rm -v \$(pwd):/work jyryu3161/biomarkerpred \\"
     echo "    binary --config=/work/config/example_analysis.yaml"
     ;;
   *)

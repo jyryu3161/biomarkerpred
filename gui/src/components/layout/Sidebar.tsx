@@ -27,8 +27,8 @@ export function Sidebar({ currentPage, onPageChange, analysisRunning, oraRunning
   return (
     <aside className="w-48 border-r border-border bg-secondary/30 flex flex-col">
       <div className="p-4 border-b border-border">
-        <h1 className="text-sm font-bold text-primary">RESPRED</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">Drug Response Biomarker Prediction</p>
+        <h1 className="text-sm font-bold text-primary">BioMarkerPred</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">Biomarker Prediction Platform</p>
       </div>
       <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => (

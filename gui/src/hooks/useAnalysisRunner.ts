@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from "react";
 import { useAnalysisStore } from "@/stores/analysisStore";
+import { useOraStore } from "@/stores/oraStore";
 import { runAnalysis, cancelAnalysis } from "@/lib/tauri/commands";
 import {
   onAnalysisProgress,
@@ -80,6 +81,7 @@ export function useAnalysisRunner() {
       setParam("logs", [] as string[]);
       setParam("progress", { current: 0, total: 0, message: "" });
       useAnalysisStore.getState().setResult(null);
+      useOraStore.getState().reset();
       setStatus("running");
       const config = buildConfig();
       await runAnalysis(config);

@@ -1,7 +1,7 @@
 [package]
-name = "respred"
-version = "0.3.1"
-description = "RESPRED - RESponse PREDiction"
+name = "biomarkerpred"
+version = "0.3.2"
+description = "BioMarkerPred - Biomarker Prediction Platform"
 authors = ["you"]
 license = ""
 repository = ""

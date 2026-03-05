@@ -48,7 +48,7 @@ describe("Sidebar", () => {
     const onPageChange = vi.fn();
     render(<Sidebar currentPage="setup" onPageChange={onPageChange} analysisRunning={false} />);
 
-    expect(screen.getByText("RESPRED")).toBeDefined();
+    expect(screen.getByText("BioMarkerPred")).toBeDefined();
     await waitFor(() => {
       expect(screen.getByText("v0.3.0")).toBeDefined();
     });

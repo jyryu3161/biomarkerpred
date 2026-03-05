@@ -323,6 +323,7 @@ function plotLabel(plot: string): string {
 export function ResultsPage() {
   const status = useAnalysisStore((s) => s.status);
   const outputDir = useAnalysisStore((s) => s.outputDir);
+  const analysisType = useAnalysisStore((s) => s.analysisType);
   const [allFiles, setAllFiles] = useState<string[]>([]);
 
   const hasRun =
@@ -354,7 +355,7 @@ export function ResultsPage() {
         <>
           <PlotViewer outputDir={outputDir} allFiles={allFiles} />
           <ExportPanel outputDir={outputDir} allFiles={allFiles} />
-          <AucTable outputDir={outputDir} />
+          {analysisType !== "survival" && <AucTable outputDir={outputDir} />}
         </>
       ) : !hasRun ? (
         <div className="border border-border rounded-lg p-8 text-center">

@@ -72,9 +72,11 @@ function NumberField({
 }
 
 export function ParametersSection() {
+  const analysisType = useAnalysisStore((s) => s.analysisType);
   const splitProp = useAnalysisStore((s) => s.splitProp);
   const numSeed = useAnalysisStore((s) => s.numSeed);
   const freq = useAnalysisStore((s) => s.freq);
+  const horizon = useAnalysisStore((s) => s.horizon);
   const outputDir = useAnalysisStore((s) => s.outputDir);
   const setParam = useAnalysisStore((s) => s.setParam);
 
@@ -119,6 +121,17 @@ export function ParametersSection() {
             onChange={(v) => setParam("freq", v)}
           />
         </div>
+
+        {analysisType === "survival" && (
+          <NumberField
+            label="Survival Horizon (years)"
+            value={horizon}
+            min={1}
+            max={20}
+            step={0.5}
+            onChange={(v) => setParam("horizon", v)}
+          />
+        )}
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground">Output Directory</label>

@@ -87,7 +87,7 @@ export function OraControlPanel() {
     }
     setLoading(true);
 
-    // Try auc_iterations.csv first
+    // Try auc_iterations.csv first, then StepBin or StepSurv Final_Stepwise_Total.csv
     readTextFile(`${outputDir}/auc_iterations.csv`)
       .then((content) => {
         const parsed = parseGenesFromAucCsv(content);
@@ -99,9 +99,18 @@ export function OraControlPanel() {
       })
       .catch(() => {
         // Fallback: Final_Stepwise_Total.csv (Variable column: "GENE1 + GENE2 + GENE3")
+        // Try StepBin (binary) first, then StepSurv (survival)
         return readTextFile(`${outputDir}/StepBin/Final_Stepwise_Total.csv`)
-          .then((content) => setGenes(parseGenesFromStepwiseCsv(content)))
-          .catch(() => setGenes([]));
+          .then((content) => {
+            const parsed = parseGenesFromStepwiseCsv(content);
+            if (parsed.length > 0) { setGenes(parsed); return; }
+            throw new Error("empty");
+          })
+          .catch(() =>
+            readTextFile(`${outputDir}/StepSurv/Final_Stepwise_Total.csv`)
+              .then((content) => setGenes(parseGenesFromStepwiseCsv(content)))
+              .catch(() => setGenes([]))
+          );
       })
       .finally(() => setLoading(false));
   }, [outputDir, analysisStatus]);
@@ -191,7 +200,7 @@ export function OraControlPanel() {
         </div>
         <input
           type="range"
-          min={0.4}
+          min={0}
           max={1.0}
           step={0.05}
           value={ppiConfidence}
@@ -200,7 +209,7 @@ export function OraControlPanel() {
           className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary disabled:opacity-50"
         />
         <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-          <span>0.40 (more interactions)</span>
+          <span>0.00 (all interactions)</span>
           <span>1.00 (high confidence)</span>
         </div>
       </div>

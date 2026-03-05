@@ -154,7 +154,7 @@ fn cache_dir() -> Result<PathBuf, String> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map_err(|_| "Cannot determine home directory".to_string())?;
-    let dir = PathBuf::from(home).join(".respred").join(CACHE_DIR);
+    let dir = PathBuf::from(home).join(".biomarkerpred").join(CACHE_DIR);
     if !dir.exists() {
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("Cannot create cache directory: {}", e))?;

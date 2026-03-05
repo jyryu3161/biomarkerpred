@@ -13,5 +13,5 @@ export function getVersion() {
 }
 
 export function getName() {
-  return Promise.resolve("RESPRED");
+  return Promise.resolve("BioMarkerPred");
 }

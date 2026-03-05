@@ -1,16 +1,19 @@
-# RESPRED
+# BioMarkerPred
 
-**RESponse PREDiction** — Drug Response Biomarker Prediction Platform
+**Biomarker Prediction Platform** — Drug Response & Prognosis Biomarker Discovery
 
-AUC-driven stepwise variable selection for drug response biomarker discovery. Uses logistic regression with reproducible train/test splitting to identify gene signatures that predict drug responders vs non-responders.
+AUC-driven stepwise variable selection for biomarker discovery. Supports drug response prediction (logistic regression) and prognosis/survival analysis (Cox regression) with reproducible train/test splitting to identify gene signatures.
 
 ## Features
 
 - **Drug response prediction**: Logistic regression with ROC analysis
+- **Prognosis prediction**: Cox proportional hazards model with survival analysis (Kaplan-Meier, C-index)
 - **Stepwise selection**: Forward/backward variable selection optimizing AUC across multiple random seeds
+- **ORA pathway analysis**: Over-Representation Analysis with GO, KEGG, Reactome, and WikiPathways
+- **PPI network integration**: STRING DB protein-protein interaction network expansion
 - **Evidence-based filtering**: Open Targets Platform drug-target association integration
 - **Publication-ready figures**: TIFF (300 DPI) and SVG outputs
-- **Visualizations**: ROC curves, Waterfall plots, Volcano plots, Biomarker heatmaps, Variable importance, DCA, Confusion matrices
+- **Visualizations**: ROC curves, Waterfall plots, Volcano plots, Biomarker heatmaps, Variable importance, DCA, Confusion matrices, Kaplan-Meier curves, PPI networks
 - **Desktop GUI**: Interactive analysis with real-time progress tracking
 - **Cross-platform**: macOS, Windows, Linux via Docker
 
@@ -18,7 +21,7 @@ AUC-driven stepwise variable selection for drug response biomarker discovery. Us
 
 **Prerequisites**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
 
-1. Download the installer from [Releases](https://github.com/jyryu3161/respred/releases)
+1. Download the installer from [Releases](https://github.com/jyryu3161/biomarkerpred/releases)
 
 | Platform | File |
 |----------|------|
@@ -39,16 +42,24 @@ AUC-driven stepwise variable selection for drug response biomarker discovery. Us
 ### Docker (Recommended)
 
 ```bash
-docker pull jyryu3161/respred
+docker pull jyryu3161/biomarkerpred
 
 # Drug response prediction
-docker run --rm -v $(pwd):/work jyryu3161/respred \
+docker run --rm -v $(pwd):/work jyryu3161/biomarkerpred \
   binary --config=/work/config/example_analysis.yaml
+
+# Prognosis/survival prediction
+docker run --rm -v $(pwd):/work jyryu3161/biomarkerpred \
+  survival --config=/work/config/survival_config.yaml
+
+# ORA pathway analysis
+docker run --rm -v $(pwd):/output jyryu3161/biomarkerpred \
+  ora --genes='GENE1;GENE2;GENE3' --output-dir=/output
 ```
 
 Windows:
 ```bat
-docker run --rm -v %cd%:/work jyryu3161/respred binary --config=/work/config/analysis.yaml
+docker run --rm -v %cd%:/work jyryu3161/biomarkerpred binary --config=/work/config/analysis.yaml
 ```
 
 > When using Docker CLI, set paths relative to `/work/` in your config (e.g., `data_file: "/work/data/my_data.csv"`).
@@ -58,8 +69,8 @@ docker run --rm -v %cd%:/work jyryu3161/respred binary --config=/work/config/ana
 For users who prefer running R directly without Docker:
 
 ```bash
-git clone https://github.com/jyryu3161/respred.git
-cd respred
+git clone https://github.com/jyryu3161/biomarkerpred.git
+cd biomarkerpred
 ./install.sh   # installs pixi + R + packages
 
 ./run_analysis.sh binary --config config/example_analysis.yaml
@@ -68,6 +79,8 @@ cd respred
 ## Configuration
 
 Create a YAML config file (see `config/example_analysis.yaml`):
+
+### Drug Response (Binary)
 
 ```yaml
 workdir: "."
@@ -79,6 +92,22 @@ binary:
   split_prop: 0.7
   num_seed: 100
   output_dir: results/binary
+  freq: 50
+```
+
+### Prognosis (Survival)
+
+```yaml
+workdir: "."
+
+survival:
+  data_file: data/my_data.csv
+  sample_id: sample
+  event: status
+  horizon: time
+  split_prop: 0.7
+  num_seed: 100
+  output_dir: results/survival
   freq: 50
 ```
 
@@ -98,6 +127,13 @@ binary:
 | `exclude` | Columns to exclude from analysis | `[]` |
 | `include` | Columns to force-include | `[]` |
 
+**Survival-specific parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| `event` | Column name for event indicator (0/1) |
+| `horizon` | Column name for time-to-event |
+
 **Evidence-based filtering** (optional):
 ```yaml
 evidence:
@@ -110,6 +146,8 @@ evidence:
 ## Output
 
 Results are saved in the configured `output_dir`:
+
+### Binary (Drug Response)
 
 ```
 output_dir/
@@ -128,6 +166,34 @@ output_dir/
 └── auc_iterations.csv         # AUC per seed
 ```
 
+### Survival (Prognosis)
+
+```
+output_dir/
+├── figures/                    # All plots (SVG + TIFF)
+│   ├── Survival_ROCcurve.*
+│   ├── Surv_Variable_Importance.*
+│   ├── Survival_KaplanMeier.*
+│   └── Survival_Stepwise_Process.*
+├── StepSurv/                  # Stepwise selection intermediates + final result
+└── ExtCandidat/               # Per-seed univariate results
+```
+
+### Pathway Analysis (ORA + PPI)
+
+```
+pathway/
+├── figures/                   # PPI network plots
+│   └── ppi_network.*
+├── ora_go_bp.csv              # GO Biological Process
+├── ora_go_cc.csv              # GO Cellular Component
+├── ora_go_mf.csv              # GO Molecular Function
+├── ora_kegg.csv               # KEGG Pathways
+├── ora_reactome.csv           # Reactome Pathways
+├── ora_wp.csv                 # WikiPathways
+└── summary.json               # Analysis summary
+```
+
 ## Troubleshooting
 
 - **macOS "damaged" or "unidentified developer" error**: The app is not Apple-signed.
@@ -136,12 +202,12 @@ output_dir/
 
   **Option 2**: Remove quarantine flag:
   ```bash
-  xattr -cr /Applications/RESPRED.app
+  xattr -cr /Applications/BioMarkerPred.app
   ```
 
   **Option 3**: System Settings → Privacy & Security → scroll to the blocked app → "Open Anyway"
 - **"Docker Desktop Required" screen**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it is running before launching the app.
-- **Image download fails**: Check your internet connection. You can also pull manually: `docker pull jyryu3161/respred`
+- **Image download fails**: Check your internet connection. You can also pull manually: `docker pull jyryu3161/biomarkerpred`
 - **Analysis fails in Docker mode**: Check that the data file path and output directory are accessible. Docker needs permission to mount those directories.
 - **Config errors**: Ensure column names in YAML match CSV headers exactly
 - **Permission denied (CLI)**: `chmod +x install.sh run_analysis.sh run_gui.sh`
