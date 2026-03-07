@@ -171,8 +171,8 @@ export function PathwayAnalysisPage() {
       {oraStatus === "idle" && analysisStatus !== "completed" && (
         <div className="border border-border rounded-lg p-8 text-center">
           <p className="text-muted-foreground">
-            Run a drug response analysis first, then use this page to explore
-            pathway enrichment of your candidate genes.
+            Run an analysis first, then use this page to explore
+            pathway enrichment of your selected biomarker genes.
           </p>
         </div>
       )}

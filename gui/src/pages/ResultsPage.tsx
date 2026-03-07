@@ -5,8 +5,8 @@ import {
   listOutputPlots,
   saveFile,
   openDirectory,
+  checkModelExists,
 } from "@/lib/tauri/commands";
-import { AucTable } from "@/components/results/AucTable";
 
 function LogPanel() {
   const logs = useAnalysisStore((s) => s.logs);
@@ -320,10 +320,65 @@ function plotLabel(plot: string): string {
     .replace(/_/g, " ");
 }
 
+function SaveModelPanel({ outputDir }: { outputDir: string }) {
+  const [modelPath, setModelPath] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkModelExists(outputDir)
+      .then(setModelPath)
+      .catch(() => setModelPath(null));
+  }, [outputDir]);
+
+  if (!modelPath) return null;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSavedMsg(null);
+    try {
+      const dest = await saveFile(modelPath, "model.bmpmodel");
+      if (dest) {
+        setSavedMsg(`Saved to: ${dest}`);
+      }
+    } catch (e) {
+      setSavedMsg(`Error: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium">Trained Model</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Save the trained model for predicting new patients
+          </p>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          {saving ? "Saving..." : "Save Model"}
+        </button>
+      </div>
+      {savedMsg && (
+        <p
+          className={`text-xs mt-2 ${savedMsg.startsWith("Error") ? "text-destructive" : "text-green-600"}`}
+        >
+          {savedMsg}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function ResultsPage() {
   const status = useAnalysisStore((s) => s.status);
   const outputDir = useAnalysisStore((s) => s.outputDir);
-  const analysisType = useAnalysisStore((s) => s.analysisType);
   const [allFiles, setAllFiles] = useState<string[]>([]);
 
   const hasRun =
@@ -353,9 +408,22 @@ export function ResultsPage() {
 
       {showPlots && outputDir ? (
         <>
-          <PlotViewer outputDir={outputDir} allFiles={allFiles} />
-          <ExportPanel outputDir={outputDir} allFiles={allFiles} />
-          {analysisType !== "survival" && <AucTable outputDir={outputDir} />}
+          {allFiles.length > 0 ? (
+            <>
+              <PlotViewer outputDir={outputDir} allFiles={allFiles} />
+              <ExportPanel outputDir={outputDir} allFiles={allFiles} />
+            </>
+          ) : status === "completed" ? (
+            <div className="border border-border rounded-lg p-8 text-center">
+              <p className="text-muted-foreground">
+                Analysis completed but no plots were generated.
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                This usually means no candidate genes were found. Try relaxing the p-value threshold or frequency cutoff.
+              </p>
+            </div>
+          ) : null}
+          {status === "completed" && <SaveModelPanel outputDir={outputDir} />}
         </>
       ) : !hasRun ? (
         <div className="border border-border rounded-lg p-8 text-center">

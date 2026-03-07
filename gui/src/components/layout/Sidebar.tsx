@@ -2,23 +2,25 @@ import { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { cn } from "@/lib/utils";
 
-export type Page = "setup" | "results" | "pathway" | "settings";
+export type Page = "setup" | "results" | "pathway" | "prediction" | "settings";
 
 interface SidebarProps {
   currentPage: Page;
   onPageChange: (page: Page) => void;
   analysisRunning: boolean;
   oraRunning?: boolean;
+  predictionRunning?: boolean;
 }
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "setup", label: "Setup", icon: "⚙️" },
   { id: "results", label: "Results", icon: "📊" },
   { id: "pathway", label: "Pathway Analysis", icon: "🧬" },
+  { id: "prediction", label: "Prediction", icon: "🔮" },
   { id: "settings", label: "Settings", icon: "🔧" },
 ];
 
-export function Sidebar({ currentPage, onPageChange, analysisRunning, oraRunning }: SidebarProps) {
+export function Sidebar({ currentPage, onPageChange, analysisRunning, oraRunning, predictionRunning }: SidebarProps) {
   const [version, setVersion] = useState<string>("");
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion(""));
@@ -48,6 +50,9 @@ export function Sidebar({ currentPage, onPageChange, analysisRunning, oraRunning
               <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
             )}
             {item.id === "pathway" && oraRunning && (
+              <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+            )}
+            {item.id === "prediction" && predictionRunning && (
               <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
             )}
           </button>

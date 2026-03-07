@@ -10,7 +10,7 @@ pub async fn fs_pick_file(app: tauri::AppHandle) -> Result<Option<String>, Strin
     let file = app
         .dialog()
         .file()
-        .add_filter("CSV files", &["csv"])
+        .add_filter("Supported files", &["csv", "bmpmodel", "yaml", "yml"])
         .add_filter("All files", &["*"])
         .blocking_pick_file();
 
@@ -105,6 +105,8 @@ pub async fn fs_save_file(
         "png" => "PNG Image",
         "pdf" => "PDF Document",
         "csv" => "CSV File",
+        "bmpmodel" => "BioMarkerPred Model",
+        "yaml" | "yml" => "YAML Config",
         _ => "All Files",
     };
 
