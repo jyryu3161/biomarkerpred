@@ -5,11 +5,13 @@ import { SetupPage } from "@/pages/SetupPage";
 import { ResultsPage } from "@/pages/ResultsPage";
 import { PathwayAnalysisPage } from "@/pages/PathwayAnalysisPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { PredictionPage } from "@/pages/PredictionPage";
 import { EnvironmentSetup } from "@/components/environment/EnvironmentSetup";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { useOraStore } from "@/stores/oraStore";
+import { usePredictionStore } from "@/stores/predictionStore";
 import { useConfigStore } from "@/stores/configStore";
-import { checkEnv, checkImageUpdate, pullDockerImage } from "@/lib/tauri/commands";
+import { checkEnv, checkImageUpdate, pullDockerImage, readPredictionResults } from "@/lib/tauri/commands";
 
 type UpdateState = "idle" | "checking" | "available" | "updating" | "done" | "dismissed";
 
@@ -192,12 +194,50 @@ function App() {
       store.setStatus("failed");
     }).then((u) => unlisten.push(u));
 
+    // Prediction events
+    listen<string>("prediction://log", (event) => {
+      usePredictionStore.getState().appendLog(event.payload);
+    }).then((u) => unlisten.push(u));
+
+    listen<{ success: boolean; code: number | null }>(
+      "prediction://complete",
+      (event) => {
+        const store = usePredictionStore.getState();
+        const { success, code } = event.payload;
+        store.appendLog(
+          success
+            ? "Prediction completed successfully"
+            : `Prediction failed (exit code ${code})`,
+        );
+        if (success && store.outputDir) {
+          readPredictionResults(store.outputDir)
+            .then((results) => {
+              store.setResults(results);
+              store.setStatus("completed");
+            })
+            .catch(() => {
+              store.setStatus("completed");
+            });
+        } else {
+          store.setStatus(success ? "completed" : "failed");
+        }
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ message: string }>("prediction://error", (event) => {
+      const store = usePredictionStore.getState();
+      store.appendLog(`Error: ${event.payload.message}`);
+      store.setErrorMessage(event.payload.message);
+      store.setStatus("failed");
+    }).then((u) => unlisten.push(u));
+
     return () => {
       unlisten.forEach((u) => u());
     };
   }, []);
 
   const oraStatus = useOraStore((s) => s.status);
+  const predictionStatus = usePredictionStore((s) => s.status);
 
   // Environment gate: show setup screen if env not ready
   if (!showMain) {
@@ -215,6 +255,7 @@ function App() {
         onPageChange={setCurrentPage}
         analysisRunning={hasResults}
         oraRunning={oraStatus === "running"}
+        predictionRunning={predictionStatus === "running"}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Image update banner */}
@@ -270,6 +311,7 @@ function App() {
         {currentPage === "setup" && <SetupPage />}
         {currentPage === "results" && <ResultsPage />}
         {currentPage === "pathway" && <PathwayAnalysisPage />}
+        {currentPage === "prediction" && <PredictionPage />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>

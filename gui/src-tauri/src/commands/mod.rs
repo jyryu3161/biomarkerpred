@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod config;
 pub mod fs_ops;
+pub mod model;
 pub mod opentargets;
 pub mod ora;
 pub mod runtime;

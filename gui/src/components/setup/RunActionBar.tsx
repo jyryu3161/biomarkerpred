@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import {
   runAnalysis,
   cancelAnalysis,
-  saveYaml,
-  loadYaml,
+  saveFile,
   pickFile,
   pickDirectory,
   readCsvHeader,
+  checkModelExists,
+  loadModel,
 } from "@/lib/tauri/commands";
 import { cn } from "@/lib/utils";
 
@@ -89,15 +91,25 @@ export function RunActionBar() {
     }
   };
 
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
   const handleSave = async () => {
+    if (!outputDir) {
+      setSaveMsg("Set an output directory first.");
+      return;
+    }
     try {
-      const dir = await pickDirectory();
-      if (!dir) return;
-      const config = buildConfig();
-      const path = `${dir}/analysis_config.yaml`;
-      await saveYaml(config, path);
+      const modelPath = await checkModelExists(outputDir);
+      if (!modelPath) {
+        setSaveMsg("No model found. Run an analysis that produces results first.");
+        return;
+      }
+      const dest = await saveFile(modelPath, "model.bmpmodel");
+      if (dest) {
+        setSaveMsg(`Saved to: ${dest}`);
+      }
     } catch (e) {
-      console.error("Save config error:", e);
+      setSaveMsg(`Error: ${e}`);
     }
   };
 
@@ -105,34 +117,53 @@ export function RunActionBar() {
     try {
       const path = await pickFile();
       if (!path) return;
-      const config = await loadYaml(path) as Record<string, unknown>;
+      const info = await loadModel(path);
 
-      // Apply loaded config to store
-      if (config.type === "survival") {
+      // Restore config from embedded model data
+      const config = info.config as Record<string, unknown> | null;
+      if (!config) {
+        console.error("Model file has no embedded config");
+        return;
+      }
+
+      // Determine analysis type from model
+      if (info.analysis_type === "survival") {
         setAnalysisType("survival");
-        if (config.event) setColumnMapping("event", config.event as string);
-        if (config.horizon) setParam("horizon", config.horizon as number);
       } else {
         setAnalysisType("binary");
-        if (config.outcome) setColumnMapping("outcome", config.outcome as string);
       }
-      if (config.dataFile) {
-        const df = config.dataFile as string;
-        setDataFile(df);
-        try {
-          const info = await readCsvHeader(df);
-          setDataInfo(info);
-        } catch {
-          // file may not exist
+
+      // Restore config fields from the embedded R config
+      // R config structure: { workdir, binary: { data_file, sample_id, ... }, evidence: {...} }
+      const section = (config.binary ?? config.survival) as Record<string, unknown> | undefined;
+      if (section) {
+        if (section.data_file) {
+          const df = section.data_file as string;
+          setDataFile(df);
+          try {
+            const csvInfo = await readCsvHeader(df);
+            setDataInfo(csvInfo);
+          } catch {
+            // file may not exist at original path
+          }
+        }
+        if (section.sample_id) setColumnMapping("sampleId", section.sample_id as string);
+        if (section.split_prop) setParam("splitProp", section.split_prop as number);
+        if (section.num_seed) setParam("numSeed", section.num_seed as number);
+        if (section.freq) setParam("freq", section.freq as number);
+        if (section.output_dir) setParam("outputDir", section.output_dir as string);
+
+        if (info.analysis_type === "binary" && section.outcome) {
+          setColumnMapping("outcome", section.outcome as string);
+        }
+        if (info.analysis_type === "survival") {
+          if (section.event) setColumnMapping("event", section.event as string);
+          if (section.horizon) setParam("horizon", section.horizon as number);
+          if (section.time_variable) setColumnMapping("timeVariable", section.time_variable as string);
         }
       }
-      if (config.sampleId) setColumnMapping("sampleId", config.sampleId as string);
-      if (config.splitProp) setParam("splitProp", config.splitProp as number);
-      if (config.numSeed) setParam("numSeed", config.numSeed as number);
-      if (config.freq) setParam("freq", config.freq as number);
-      if (config.outputDir) setParam("outputDir", config.outputDir as string);
     } catch (e) {
-      console.error("Load config error:", e);
+      console.error("Load model error:", e);
     }
   };
 
@@ -151,14 +182,14 @@ export function RunActionBar() {
         disabled={isRunning}
         className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50"
       >
-        Save Config
+        Save Model
       </button>
       <button
         onClick={handleLoad}
         disabled={isRunning}
         className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 transition-colors disabled:opacity-50"
       >
-        Load Config
+        Load Model
       </button>
 
       <div className="w-px h-6 bg-border" />
@@ -209,6 +240,12 @@ export function RunActionBar() {
       {!canRun && !isRunning && missingFields.length > 0 && (
         <span className="text-xs text-muted-foreground">
           Missing: {missingFields.join(", ")}
+        </span>
+      )}
+
+      {saveMsg && (
+        <span className={`text-xs w-full ${saveMsg.startsWith("Error") || saveMsg.startsWith("No ") || saveMsg.startsWith("Set ") ? "text-destructive" : "text-green-600"}`}>
+          {saveMsg}
         </span>
       )}
     </div>

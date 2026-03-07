@@ -508,6 +508,27 @@ async fn run_via_docker(
         }
     }
 
+    // Mount local R scripts into the container to override the image versions.
+    // This ensures Save_Model.R, Predict_New.R, and updated Main scripts are used
+    // without requiring a Docker image rebuild.
+    if let Some(project_root) = find_project_root() {
+        let r_scripts = [
+            "Main_Binary.R",
+            "Main_Survival.R",
+            "Binary_TrainAUC_StepwiseSelection.R",
+            "Survival_TrainAUC_StepwiseSelection.R",
+            "Save_Model.R",
+            "Predict_New.R",
+        ];
+        for script in &r_scripts {
+            let script_path = project_root.join(script);
+            if script_path.exists() {
+                docker_args.push("-v".to_string());
+                docker_args.push(format!("{}:/app/{}:ro", docker_path(&script_path), script));
+            }
+        }
+    }
+
     docker_args.push("jyryu3161/biomarkerpred".to_string());
     docker_args.push(analysis_type.to_string());
     docker_args.push("--config=/config.yaml".to_string());

@@ -31,6 +31,7 @@ config <- yaml::read_yaml(config_file)
 # Source R script (before setwd so source() finds files relative to project root / /app in Docker)
 cat(paste("STEPWISE_LOG:Starting Drug Response Prediction Analysis\n"), file = stderr())
 source('Binary_TrainAUC_StepwiseSelection.R')
+source('Save_Model.R')
 
 # Get working directory
 if (!is.null(config$workdir)) {
@@ -202,5 +203,12 @@ safe_plot(PlotBinVolcano(dat, totvar), "Volcano plot")
 safe_plot(PlotBinHeatmap(dat, Result), "Biomarker heatmap")
 
 setwd(old_dir)  # Restore original directory
+
+# Save model artifact for prediction use
+safe_plot(
+  SaveModelArtifact(dat, Result, "binary", output_dir, numSeed, SplitProp, config),
+  "Model artifact"
+)
+
 cat(paste("STEPWISE_LOG:Analysis complete!\n"), file = stderr())
 #####################################################################

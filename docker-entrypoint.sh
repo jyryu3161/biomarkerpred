@@ -14,6 +14,10 @@ case "$1" in
     shift
     exec Rscript /app/ORA_PPI_Analysis.R "$@"
     ;;
+  predict)
+    shift
+    exec Rscript /app/Predict_New.R "$@"
+    ;;
   --help|"")
     echo "BioMarkerPred - Biomarker Prediction Platform"
     echo ""

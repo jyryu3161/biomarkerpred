@@ -170,13 +170,14 @@ export function ColumnMappingSection() {
             />
           )}
 
-          <ColumnSelect
-            label="Time Variable"
-            value={timeVariable}
-            columns={columns}
-            onChange={(v) => setColumnMapping("timeVariable", v)}
-            optional={analysisType === "binary"}
-          />
+          {analysisType === "survival" && (
+            <ColumnSelect
+              label="Time Variable"
+              value={timeVariable}
+              columns={columns}
+              onChange={(v) => setColumnMapping("timeVariable", v)}
+            />
+          )}
         </div>
       )}
     </section>

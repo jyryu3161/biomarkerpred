@@ -45,6 +45,8 @@ COPY Main_Binary.R \
      Binary_TrainAUC_StepwiseSelection.R \
      Main_Survival.R \
      Survival_TrainAUC_StepwiseSelection.R \
+     Save_Model.R \
+     Predict_New.R \
      ORA_PPI_Analysis.R \
      ./
 

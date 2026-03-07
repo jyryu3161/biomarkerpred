@@ -155,3 +155,47 @@ export interface ImageUpdateStatus {
 export async function checkImageUpdate(): Promise<ImageUpdateStatus> {
   return invoke<ImageUpdateStatus>("setup_check_image_update");
 }
+
+// Model / Prediction
+import type { ModelInfo, PredictionResults } from "@/types/prediction";
+
+export async function loadModel(path: string): Promise<ModelInfo> {
+  return invoke<ModelInfo>("model_load", { path });
+}
+
+export async function saveModel(
+  sourcePath: string,
+  destPath: string,
+): Promise<string> {
+  return invoke<string>("model_save", { sourcePath, destPath });
+}
+
+export async function checkModelExists(
+  outputDir: string,
+): Promise<string | null> {
+  return invoke<string | null>("model_check_exists", { outputDir });
+}
+
+export async function runPrediction(
+  modelPath: string,
+  dataPath: string,
+  outputDir: string,
+  backend: string,
+): Promise<void> {
+  return invoke("prediction_run", {
+    modelPath,
+    dataPath,
+    outputDir,
+    backend,
+  });
+}
+
+export async function cancelPrediction(): Promise<void> {
+  return invoke("prediction_cancel");
+}
+
+export async function readPredictionResults(
+  outputDir: string,
+): Promise<PredictionResults> {
+  return invoke<PredictionResults>("prediction_read_results", { outputDir });
+}

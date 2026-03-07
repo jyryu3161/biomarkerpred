@@ -2,6 +2,7 @@ mod commands;
 mod models;
 
 use commands::analysis::AnalysisProcess;
+use commands::model::PredictionProcess;
 use commands::ora::OraProcess;
 use commands::setup::SetupProcess;
 use std::sync::Mutex;
@@ -27,6 +28,9 @@ pub fn run() {
             child: Mutex::new(None),
         })
         .manage(SetupProcess {
+            child: Mutex::new(None),
+        })
+        .manage(PredictionProcess {
             child: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
@@ -67,6 +71,13 @@ pub fn run() {
             commands::setup::setup_cancel,
             commands::setup::setup_pull_docker,
             commands::setup::setup_check_image_update,
+            // Model / Prediction
+            commands::model::model_load,
+            commands::model::model_save,
+            commands::model::model_check_exists,
+            commands::model::prediction_run,
+            commands::model::prediction_cancel,
+            commands::model::prediction_read_results,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
