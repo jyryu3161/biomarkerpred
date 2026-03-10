@@ -5,7 +5,6 @@ import {
   cancelAnalysis,
   saveFile,
   pickFile,
-  pickDirectory,
   readCsvHeader,
   checkModelExists,
   loadModel,

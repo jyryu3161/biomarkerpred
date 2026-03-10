@@ -3,7 +3,6 @@ import { usePredictionStore } from "@/stores/predictionStore";
 import { useConfigStore } from "@/stores/configStore";
 import {
   pickFile,
-  pickDirectory,
   readCsvHeader,
   loadModel,
   runPrediction,
