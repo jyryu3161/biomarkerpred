@@ -18,14 +18,22 @@ RUN for i in 1 2 3; do \
         bioconductor-org.hs.eg.db \
         bioconductor-enrichplot \
         bioconductor-reactomepa \
-      && break || echo "Retry $i..."; \
+      && break; \
+      echo "Retry $i..."; \
+      sleep 5; \
     done && mamba clean -afy
+
+# Fallback: if conda failed, install via BiocManager
+COPY install_bioc.R /tmp/install_bioc.R
+RUN Rscript -e 'if (!requireNamespace("clusterProfiler", quietly=TRUE)) { \
+      install.packages("BiocManager", repos="https://cloud.r-project.org"); \
+      BiocManager::install(c("clusterProfiler","enrichplot","org.Hs.eg.db","ReactomePA"), ask=FALSE, update=FALSE) \
+    }'
 
 # Install remaining CRAN packages not in conda-forge
 RUN R -e "install.packages(c('cutpointr','coefplot','tiff','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
 
-# Verify
-COPY install_bioc.R /tmp/install_bioc.R
+# Verify all packages
 RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R
 
 # Install Arial font
