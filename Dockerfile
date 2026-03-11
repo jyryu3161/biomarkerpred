@@ -1,7 +1,8 @@
 FROM condaforge/mambaforge:latest AS builder
 
 # Install system libraries needed for R package compilation
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev libssl-dev libxml2-dev libpng-dev \
     libtiff5-dev libfontconfig1-dev libfreetype6-dev \
     fontconfig fonts-liberation make gcc g++ \
