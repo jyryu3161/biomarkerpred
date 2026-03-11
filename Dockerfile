@@ -1,5 +1,13 @@
 FROM condaforge/mambaforge:latest AS builder
 
+# System deps for font rendering and BiocManager fallback compilation
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    fontconfig fonts-liberation \
+    zlib1g-dev libcurl4-openssl-dev libssl-dev libxml2-dev libpng-dev libtiff5-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
+
 # Install R + CRAN packages + compilation deps via conda
 RUN mamba install -y -c conda-forge \
     r-base=4.3 \
@@ -10,36 +18,33 @@ RUN mamba install -y -c conda-forge \
     r-survival r-lme4 \
     r-locfit r-zoo \
     r-rcurl r-png r-tiff \
-    zlib libxml2 libcurl libpng libtiff \
     && mamba clean -afy
 
-# Install Bioconductor packages (conda first, BiocManager fallback)
+# Install Bioconductor packages: try conda, then BiocManager
 RUN mamba install -y -c conda-forge -c bioconda \
         bioconductor-clusterprofiler \
         bioconductor-org.hs.eg.db \
         bioconductor-enrichplot \
         bioconductor-reactomepa \
-    2>/dev/null \
     && mamba clean -afy \
-    || ( \
-        echo "Conda bioconda failed, falling back to BiocManager..." \
-        && Rscript -e "install.packages('BiocManager', repos='https://cloud.r-project.org'); \
-           BiocManager::install(c('clusterProfiler','enrichplot','org.Hs.eg.db','ReactomePA'), ask=FALSE, update=FALSE)" \
-    )
+    || true
+RUN Rscript -e ' \
+    pkgs <- c("clusterProfiler","enrichplot","org.Hs.eg.db","ReactomePA"); \
+    missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; \
+    if (length(missing) > 0) { \
+      cat("Installing via BiocManager:", paste(missing, collapse=", "), "\n"); \
+      install.packages("BiocManager", repos="https://cloud.r-project.org"); \
+      BiocManager::install(missing, ask=FALSE, update=FALSE) \
+    } else { \
+      cat("All Bioconductor packages already installed via conda.\n") \
+    }'
 
 # Install remaining CRAN packages not available in conda-forge
 RUN R -e "install.packages(c('cutpointr','coefplot','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
 
-# Verify all packages
+# Verify all critical packages
 COPY install_bioc.R /tmp/install_bioc.R
 RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R
-
-# Install Arial font
-RUN export DEBIAN_FRONTEND=noninteractive \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    fontconfig fonts-liberation \
-    && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -fv
 
 LABEL maintainer="jyryu3161"
 LABEL description="BioMarkerPred - Biomarker Prediction Platform"
