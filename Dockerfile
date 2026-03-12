@@ -10,7 +10,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 # Install R + CRAN packages via conda
 RUN mamba install -y -c conda-forge \
-    r-base=4.3 \
+    r-base \
     r-yaml r-ggplot2 r-caret r-rocr r-proc r-svglite \
     r-reshape2 r-gridextra r-pheatmap \
     r-httr r-jsonlite r-igraph r-tidygraph r-ggraph r-ggrepel \
