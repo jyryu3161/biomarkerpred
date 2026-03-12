@@ -1,6 +1,6 @@
 FROM condaforge/mambaforge:latest AS builder
 
-# System deps for font rendering and BiocManager fallback compilation
+# System deps for font rendering and source package compilation
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update && apt-get install -y --no-install-recommends \
     fontconfig fonts-liberation \
@@ -8,7 +8,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 
-# Install R + CRAN packages + compilation deps via conda
+# Install R + CRAN packages via conda
 RUN mamba install -y -c conda-forge \
     r-base=4.3 \
     r-yaml r-ggplot2 r-caret r-rocr r-proc r-svglite \
@@ -17,34 +17,28 @@ RUN mamba install -y -c conda-forge \
     r-dplyr r-readr r-stringr r-tibble r-tidyr \
     r-survival r-lme4 \
     r-locfit r-zoo \
-    r-rcurl r-png r-tiff \
+    r-rcurl r-png r-tiff r-biocmanager \
     && mamba clean -afy
 
-# Install Bioconductor packages: try conda, then BiocManager
+# Try installing Bioconductor packages via conda (may fail on some archs)
 RUN mamba install -y -c conda-forge -c bioconda \
         bioconductor-clusterprofiler \
         bioconductor-org.hs.eg.db \
         bioconductor-enrichplot \
         bioconductor-reactomepa \
     && mamba clean -afy \
-    || true
-RUN Rscript -e ' \
-    pkgs <- c("clusterProfiler","enrichplot","org.Hs.eg.db","ReactomePA"); \
-    missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; \
-    if (length(missing) > 0) { \
-      cat("Installing via BiocManager:", paste(missing, collapse=", "), "\n"); \
-      install.packages("BiocManager", repos="https://cloud.r-project.org"); \
-      BiocManager::install(missing, ask=FALSE, update=FALSE) \
-    } else { \
-      cat("All Bioconductor packages already installed via conda.\n") \
-    }'
+    || echo "WARN: conda bioconda install failed, will use BiocManager fallback"
+
+# Fallback: install any missing Bioconductor packages via BiocManager
+COPY install_bioc_fallback.R /tmp/install_bioc_fallback.R
+RUN Rscript /tmp/install_bioc_fallback.R
 
 # Install remaining CRAN packages not available in conda-forge
 RUN R -e "install.packages(c('cutpointr','coefplot','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
 
 # Verify all critical packages
 COPY install_bioc.R /tmp/install_bioc.R
-RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R
+RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R /tmp/install_bioc_fallback.R
 
 LABEL maintainer="jyryu3161"
 LABEL description="BioMarkerPred - Biomarker Prediction Platform"
