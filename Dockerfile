@@ -1,62 +1,44 @@
-FROM condaforge/mambaforge:latest AS builder
-
-# System deps for font rendering and source package compilation
-RUN export DEBIAN_FRONTEND=noninteractive \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    fontconfig fonts-liberation \
-    zlib1g-dev libcurl4-openssl-dev libssl-dev libxml2-dev libpng-dev libtiff5-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -fv
-
-# Install R + CRAN packages via conda
-RUN mamba install -y -c conda-forge \
-    r-base \
-    r-yaml r-ggplot2 r-caret r-rocr r-proc r-svglite \
-    r-reshape2 r-gridextra r-pheatmap \
-    r-httr r-jsonlite r-igraph r-tidygraph r-ggraph r-ggrepel \
-    r-dplyr r-readr r-stringr r-tibble r-tidyr \
-    r-survival r-lme4 \
-    r-locfit r-zoo \
-    r-rcurl r-png r-tiff r-biocmanager \
-    r-rsqlite r-dbi r-dbplyr \
-    && mamba clean -afy
-
-# Install AnnotationDbi and core Bioconductor deps via conda
-# (these are required by clusterProfiler but fail to compile from source in conda env)
-RUN mamba install -y -c conda-forge -c bioconda \
-        bioconductor-annotationdbi \
-        bioconductor-biobase \
-        bioconductor-biocgenerics \
-        bioconductor-iranges \
-        bioconductor-s4vectors \
-        bioconductor-go.db \
-    && mamba clean -afy \
-    || echo "WARN: some bioconductor core deps failed via conda"
-
-# Try installing Bioconductor packages via conda (may fail on some archs)
-RUN mamba install -y -c conda-forge -c bioconda \
-        bioconductor-clusterprofiler \
-        bioconductor-org.hs.eg.db \
-        bioconductor-enrichplot \
-        bioconductor-reactomepa \
-    && mamba clean -afy \
-    || echo "WARN: conda bioconda install failed, will use BiocManager fallback"
-
-# Fallback: install any missing Bioconductor packages via BiocManager
-COPY install_bioc_fallback.R /tmp/install_bioc_fallback.R
-RUN Rscript /tmp/install_bioc_fallback.R
-
-# Install remaining CRAN packages not available in conda-forge
-RUN R -e "install.packages(c('cutpointr','coefplot','nsROC','survminer'), repos='https://cloud.r-project.org', Ncpus=4)"
-
-# Verify all critical packages
-COPY install_bioc.R /tmp/install_bioc.R
-RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R /tmp/install_bioc_fallback.R
+FROM rocker/r-ver:4.3.3
 
 LABEL maintainer="jyryu3161"
 LABEL description="BioMarkerPred - Biomarker Prediction Platform"
 LABEL version="0.4.0"
 LABEL changelog="v0.4.0: Add model save and prediction features"
+
+# System dependencies for R packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    libtiff-dev \
+    libpng-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    cmake \
+    fontconfig fonts-liberation \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
+
+# Install CRAN packages
+RUN R -e "install.packages(c( \
+    'yaml', 'ggplot2', 'caret', 'ROCR', 'pROC', 'cutpointr', \
+    'coefplot', 'nsROC', 'survival', 'svglite', 'tiff', \
+    'reshape2', 'gridExtra', 'survminer', 'pheatmap', \
+    'httr', 'jsonlite', 'igraph', 'tidygraph', 'ggraph', 'ggrepel', \
+    'dplyr', 'readr', 'stringr', 'tibble', 'tidyr', \
+    'lme4', 'locfit', 'zoo', 'BiocManager' \
+  ), repos='https://cloud.r-project.org', Ncpus=4)"
+
+# Install Bioconductor packages
+RUN R -e "BiocManager::install(c( \
+    'clusterProfiler', 'enrichplot', 'org.Hs.eg.db', 'ReactomePA' \
+  ), ask=FALSE, update=FALSE)"
+
+# Verify critical packages
+COPY install_bioc.R /tmp/install_bioc.R
+RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R
 
 WORKDIR /app
 
