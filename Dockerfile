@@ -18,7 +18,20 @@ RUN mamba install -y -c conda-forge \
     r-survival r-lme4 \
     r-locfit r-zoo \
     r-rcurl r-png r-tiff r-biocmanager \
+    r-rsqlite r-dbi r-dbplyr \
     && mamba clean -afy
+
+# Install AnnotationDbi and core Bioconductor deps via conda
+# (these are required by clusterProfiler but fail to compile from source in conda env)
+RUN mamba install -y -c conda-forge -c bioconda \
+        bioconductor-annotationdbi \
+        bioconductor-biobase \
+        bioconductor-biocgenerics \
+        bioconductor-iranges \
+        bioconductor-s4vectors \
+        bioconductor-go.db \
+    && mamba clean -afy \
+    || echo "WARN: some bioconductor core deps failed via conda"
 
 # Try installing Bioconductor packages via conda (may fail on some archs)
 RUN mamba install -y -c conda-forge -c bioconda \
