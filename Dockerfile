@@ -31,14 +31,22 @@ RUN R -e "install.packages(c( \
     'lme4', 'locfit', 'zoo', 'BiocManager' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
-# Install Bioconductor packages
-RUN R -e "BiocManager::install(c( \
-    'clusterProfiler', 'enrichplot', 'org.Hs.eg.db', 'ReactomePA' \
-  ), ask=FALSE, update=FALSE)"
+# Install Bioconductor packages step by step with error checking
+RUN Rscript -e ' \
+  BiocManager::install("clusterProfiler", ask=FALSE, update=FALSE, force=TRUE); \
+  if (!requireNamespace("clusterProfiler", quietly=TRUE)) stop("clusterProfiler failed")'
 
-# Verify critical packages
-COPY install_bioc.R /tmp/install_bioc.R
-RUN Rscript /tmp/install_bioc.R && rm /tmp/install_bioc.R
+RUN Rscript -e ' \
+  BiocManager::install("enrichplot", ask=FALSE, update=FALSE, force=TRUE); \
+  if (!requireNamespace("enrichplot", quietly=TRUE)) stop("enrichplot failed")'
+
+RUN Rscript -e ' \
+  BiocManager::install("org.Hs.eg.db", ask=FALSE, update=FALSE, force=TRUE); \
+  if (!requireNamespace("org.Hs.eg.db", quietly=TRUE)) stop("org.Hs.eg.db failed")'
+
+RUN Rscript -e ' \
+  BiocManager::install("ReactomePA", ask=FALSE, update=FALSE, force=TRUE); \
+  if (!requireNamespace("ReactomePA", quietly=TRUE)) stop("ReactomePA failed")'
 
 WORKDIR /app
 
