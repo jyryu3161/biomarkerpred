@@ -1,4 +1,4 @@
-FROM rocker/r-ver:4.3.3
+FROM rocker/r-ver:4.4.2
 
 LABEL maintainer="jyryu3161"
 LABEL description="BioMarkerPred - Biomarker Prediction Platform"
@@ -31,29 +31,13 @@ RUN R -e "install.packages(c( \
     'lme4', 'locfit', 'zoo', 'BiocManager' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
-# Install Bioconductor deps that need more memory (one at a time)
-RUN Rscript -e 'BiocManager::install("ggtree", ask=FALSE, update=FALSE, force=TRUE)' \
-    && Rscript -e 'if (!requireNamespace("ggtree", quietly=TRUE)) stop("ggtree failed")'
-
-RUN Rscript -e 'BiocManager::install("DOSE", ask=FALSE, update=FALSE, force=TRUE)' \
-    && Rscript -e 'if (!requireNamespace("DOSE", quietly=TRUE)) stop("DOSE failed")'
-
-# Install Bioconductor packages step by step with error checking
+# Install Bioconductor packages
 RUN Rscript -e ' \
-  BiocManager::install("clusterProfiler", ask=FALSE, update=FALSE, force=TRUE); \
-  if (!requireNamespace("clusterProfiler", quietly=TRUE)) stop("clusterProfiler failed")'
-
-RUN Rscript -e ' \
-  BiocManager::install("enrichplot", ask=FALSE, update=FALSE, force=TRUE); \
-  if (!requireNamespace("enrichplot", quietly=TRUE)) stop("enrichplot failed")'
-
-RUN Rscript -e ' \
-  BiocManager::install("org.Hs.eg.db", ask=FALSE, update=FALSE, force=TRUE); \
-  if (!requireNamespace("org.Hs.eg.db", quietly=TRUE)) stop("org.Hs.eg.db failed")'
-
-RUN Rscript -e ' \
-  BiocManager::install("ReactomePA", ask=FALSE, update=FALSE, force=TRUE); \
-  if (!requireNamespace("ReactomePA", quietly=TRUE)) stop("ReactomePA failed")'
+  BiocManager::install(c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA"), \
+    ask=FALSE, update=FALSE, force=TRUE); \
+  for (pkg in c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA")) { \
+    if (!requireNamespace(pkg, quietly=TRUE)) stop(paste(pkg, "failed to install")) \
+  }'
 
 WORKDIR /app
 
