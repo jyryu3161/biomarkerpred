@@ -31,6 +31,13 @@ RUN R -e "install.packages(c( \
     'lme4', 'locfit', 'zoo', 'BiocManager' \
   ), repos='https://cloud.r-project.org', Ncpus=4)"
 
+# Install Bioconductor deps that need more memory (one at a time)
+RUN Rscript -e 'BiocManager::install("ggtree", ask=FALSE, update=FALSE, force=TRUE)' \
+    && Rscript -e 'if (!requireNamespace("ggtree", quietly=TRUE)) stop("ggtree failed")'
+
+RUN Rscript -e 'BiocManager::install("DOSE", ask=FALSE, update=FALSE, force=TRUE)' \
+    && Rscript -e 'if (!requireNamespace("DOSE", quietly=TRUE)) stop("DOSE failed")'
+
 # Install Bioconductor packages step by step with error checking
 RUN Rscript -e ' \
   BiocManager::install("clusterProfiler", ask=FALSE, update=FALSE, force=TRUE); \
