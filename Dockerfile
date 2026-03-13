@@ -21,18 +21,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
 
-# Install CRAN packages
-RUN R -e "install.packages(c( \
-    'yaml', 'ggplot2', 'caret', 'ROCR', 'pROC', 'cutpointr', \
-    'coefplot', 'nsROC', 'survival', 'svglite', 'tiff', \
-    'reshape2', 'gridExtra', 'survminer', 'pheatmap', \
-    'httr', 'jsonlite', 'igraph', 'tidygraph', 'ggraph', 'ggrepel', \
-    'dplyr', 'readr', 'stringr', 'tibble', 'tidyr', \
-    'lme4', 'locfit', 'zoo', 'BiocManager' \
-  ), repos='https://cloud.r-project.org', Ncpus=4)"
+# Install CRAN packages from the Bioconductor-aligned repository set.
+# This keeps ggplot2 and related packages compatible with Bioconductor 3.20.
+RUN Rscript -e ' \
+  install.packages("BiocManager", repos="https://cloud.r-project.org"); \
+  options(repos = BiocManager::repositories()); \
+  install.packages(c( \
+    "yaml", "ggplot2", "caret", "ROCR", "pROC", "cutpointr", \
+    "coefplot", "nsROC", "survival", "svglite", "tiff", \
+    "reshape2", "gridExtra", "survminer", "pheatmap", \
+    "httr", "jsonlite", "igraph", "tidygraph", "ggraph", "ggrepel", \
+    "dplyr", "readr", "stringr", "tibble", "tidyr", \
+    "lme4", "locfit", "zoo" \
+  ), Ncpus=4) \
+'
 
 # Install Bioconductor packages
 RUN Rscript -e ' \
+  options(repos = BiocManager::repositories()); \
   BiocManager::install(c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA"), \
     ask=FALSE, update=FALSE, force=TRUE); \
   for (pkg in c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA")) { \
