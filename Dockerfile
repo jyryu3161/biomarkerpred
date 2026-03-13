@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libharfbuzz-dev \
     libfribidi-dev \
     cmake \
+    libglpk-dev \
     fontconfig fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -fv
