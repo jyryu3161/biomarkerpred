@@ -37,14 +37,17 @@ RUN Rscript -e ' \
   ), Ncpus=4) \
 '
 
-# Install Bioconductor packages
-RUN Rscript -e ' \
-  options(repos = BiocManager::repositories()); \
-  BiocManager::install(c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA"), \
-    ask=FALSE, update=FALSE, force=TRUE); \
-  for (pkg in c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "ReactomePA")) { \
-    if (!requireNamespace(pkg, quietly=TRUE)) stop(paste(pkg, "failed to install")) \
-  }'
+# Install Bioconductor core dependencies first (these must succeed before main packages)
+RUN Rscript -e 'BiocManager::install(c("AnnotationDbi", "GO.db", "org.Hs.eg.db"), ask=FALSE, update=FALSE)'
+
+# Install Bioconductor analysis packages (depend on core above)
+RUN Rscript -e 'BiocManager::install(c("DOSE", "GOSemSim", "enrichplot", "ggtree"), ask=FALSE, update=FALSE)'
+
+# Install main Bioconductor packages
+RUN Rscript -e 'BiocManager::install(c("clusterProfiler", "ReactomePA"), ask=FALSE, update=FALSE)'
+
+# Verify all installed
+RUN Rscript -e 'for (p in c("clusterProfiler","enrichplot","org.Hs.eg.db","ReactomePA")) { if (!requireNamespace(p, quietly=TRUE)) stop(paste(p,"not installed")) }'
 
 WORKDIR /app
 

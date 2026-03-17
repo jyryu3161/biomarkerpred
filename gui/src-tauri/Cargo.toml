@@ -1,6 +1,6 @@
 [package]
 name = "biomarkerpred"
-version = "0.4.0"
+version = "0.4.1"
 description = "BioMarkerPred - Biomarker Prediction Platform"
 authors = ["you"]
 license = ""
