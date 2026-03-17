@@ -213,11 +213,10 @@ function ExportPanel({ outputDir, allFiles }: { outputDir: string; allFiles: str
   };
 
   const handleOpenFolder = async () => {
-    const figDir = `${outputDir}/figures`;
     try {
-      await openDirectory(figDir);
-    } catch {
       await openDirectory(outputDir);
+    } catch {
+      // fallback: ignore if directory can't be opened
     }
   };
 

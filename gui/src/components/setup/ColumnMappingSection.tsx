@@ -155,12 +155,17 @@ export function ColumnMappingSection() {
           />
 
           {analysisType === "binary" ? (
-            <ColumnSelect
-              label="Response (0/1)"
-              value={outcome}
-              columns={columns}
-              onChange={(v) => setColumnMapping("outcome", v)}
-            />
+            <>
+              <ColumnSelect
+                label="Response (0/1)"
+                value={outcome}
+                columns={columns}
+                onChange={(v) => setColumnMapping("outcome", v)}
+              />
+              <p className="text-xs text-muted-foreground -mt-1 px-1">
+                0 = Responder, 1 = Non-responder by default
+              </p>
+            </>
           ) : (
             <ColumnSelect
               label="Event (0/1)"

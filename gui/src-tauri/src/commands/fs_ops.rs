@@ -254,6 +254,14 @@ pub async fn fs_list_output_plots(output_dir: String) -> Result<Vec<String>, Str
             if let Some(ext) = path.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
                 if image_extensions.contains(&ext_str.as_str()) {
+                    // Only include analysis-generated plots (Binary_*, Survival_*)
+                    // to exclude unrelated images the user may have in the directory
+                    let stem = path.file_stem()
+                        .map(|s| s.to_string_lossy().to_lowercase())
+                        .unwrap_or_default();
+                    if !stem.starts_with("binary") && !stem.starts_with("survival") && !stem.starts_with("surv") {
+                        continue;
+                    }
                     // Return path relative to output_dir
                     if let Ok(rel) = path.strip_prefix(base) {
                         plots.push(rel.to_string_lossy().to_string());

@@ -362,12 +362,18 @@ function ResultsSection() {
         </table>
       </div>
 
-      {isBinary && (
-        <p className="text-xs text-muted-foreground mt-2">
-          Threshold: {modelInfo?.optimal_threshold?.toFixed(4) ?? "0.5"} |
-          Probability &ge; threshold = High (predicted class 1)
+      <div className="text-xs text-muted-foreground mt-2 space-y-1">
+        {isBinary && (
+          <p>
+            Threshold: {modelInfo?.optimal_threshold?.toFixed(4) ?? "0.5"} |
+            Probability &ge; threshold = High (predicted class 1)
+          </p>
+        )}
+        <p className="text-amber-600 dark:text-amber-400">
+          Note: Risk group labels depend on how class labels were encoded in training data.
+          By default, 0 = Responder, 1 = Non-responder. &quot;High&quot; means high risk of non-response.
         </p>
-      )}
+      </div>
     </div>
   );
 }
