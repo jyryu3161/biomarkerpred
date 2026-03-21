@@ -151,8 +151,23 @@ jobs:
             --draft \
             --notes "BioMarkerPred — Biomarker Prediction Platform
 
-          Download the installer for your platform:
-          - **macOS**: \`.dmg\` (Universal — Apple Silicon + Intel)
-          - **Windows**: \`.msi\` or \`.exe\`
-          - **Linux**: \`.deb\` or \`.AppImage\`" \
+          ## Download
+          | Platform | File | Notes |
+          |----------|------|-------|
+          | macOS | \`.dmg\` | Universal (Apple Silicon + Intel) |
+          | Windows | \`.msi\` or \`.exe\` | |
+          | Linux | \`.deb\` or \`.AppImage\` | |
+
+          ## macOS Installation
+          macOS Gatekeeper may show **"Apple cannot verify"** because the app is not notarized. To install:
+
+          **Option A — Terminal (recommended)**
+          \`\`\`bash
+          xattr -cr /Applications/BioMarkerPred.app
+          \`\`\`
+
+          **Option B — Right-click**
+          1. Open Finder → Applications
+          2. **Right-click** (or Control-click) BioMarkerPred
+          3. Select **Open** → click **Open** in the dialog" \
             $(find artifacts -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.deb" -o -name "*.AppImage" \) | sort)
