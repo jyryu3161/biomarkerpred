@@ -159,7 +159,7 @@ jobs:
           | Linux | \`.deb\` or \`.AppImage\` | |
 
           ## macOS Installation
-          macOS Gatekeeper may show **"Apple cannot verify"** because the app is not notarized. To install:
+          macOS Gatekeeper may show **Apple cannot verify** warning because the app is not notarized. To install:
 
           **Option A — Terminal (recommended)**
           \`\`\`bash

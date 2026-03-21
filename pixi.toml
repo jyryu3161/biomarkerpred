@@ -1,6 +1,6 @@
 [workspace]
 name = "biomarkerpred"
-version = "0.4.1"
+version = "0.4.2"
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
