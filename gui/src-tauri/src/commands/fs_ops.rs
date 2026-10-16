@@ -2,7 +2,7 @@ use crate::models::config::DataFileInfo;
 use crate::models::error::AppError;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
+
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
@@ -10,7 +10,10 @@ pub async fn fs_pick_file(app: tauri::AppHandle) -> Result<Option<String>, Strin
     let file = app
         .dialog()
         .file()
-        .add_filter("Supported files", &["csv", "bmpmodel", "yaml", "yml"])
+        .add_filter(
+            "Supported files",
+            &["csv", "bmpmodel", "yaml", "yml", "json", "gmt", "tsv"],
+        )
         .add_filter("All files", &["*"])
         .blocking_pick_file();
 
@@ -29,60 +32,85 @@ pub async fn fs_pick_directory(app: tauri::AppHandle) -> Result<Option<String>, 
 
 #[tauri::command]
 pub async fn fs_read_csv_header(path: String) -> Result<DataFileInfo, String> {
-    let file = fs::File::open(&path).map_err(|e| {
-        String::from(AppError::file_not_found(&format!("{}: {}", path, e)))
-    })?;
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
-
-    // Read header
-    let header_line = lines
-        .next()
-        .ok_or_else(|| String::from(AppError::csv_parse_error("Empty CSV file")))?
-        .map_err(|e| String::from(AppError::csv_parse_error(&e.to_string())))?;
-
-    let columns: Vec<String> = header_line
-        .split(',')
-        .map(|s| s.trim().trim_matches('"').to_string())
+    tauri::async_runtime::spawn_blocking(move || csv_header(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+fn csv_header(path: &str) -> Result<DataFileInfo, String> {
+    let table = read_csv(std::path::Path::new(&path), Some(5))?;
+    let columns: Vec<String> = table["headers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
         .collect();
-
-    // Read preview (first 5 rows) and count total rows
     let mut preview: HashMap<String, Vec<String>> = HashMap::new();
-    for col in &columns {
-        preview.insert(col.clone(), Vec::new());
+    for column in &columns {
+        preview.insert(
+            column.clone(),
+            table["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r[column].as_str().unwrap_or("").to_owned())
+                .collect(),
+        );
     }
-
-    let mut row_count = 0;
-    for line_result in lines {
-        let line = line_result
-            .map_err(|e| String::from(AppError::csv_parse_error(&e.to_string())))?;
-        row_count += 1;
-
-        if row_count <= 5 {
-            let values: Vec<&str> = line.split(',').collect();
-            for (i, col) in columns.iter().enumerate() {
-                if let Some(val) = values.get(i) {
-                    if let Some(col_preview) = preview.get_mut(col) {
-                        col_preview.push(val.trim().trim_matches('"').to_string());
-                    }
-                }
-            }
-        }
-    }
-
     Ok(DataFileInfo {
-        path,
-        row_count,
+        path: path.to_owned(),
+        row_count: table["count"].as_u64().unwrap() as usize,
         columns,
         preview,
     })
 }
 
+pub fn read_csv(path: &std::path::Path, limit: Option<usize>) -> Result<serde_json::Value, String> {
+    let mut reader = csv::ReaderBuilder::new()
+        .from_path(path)
+        .map_err(|e| e.to_string())?;
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(str::to_owned)
+        .collect();
+    if headers.is_empty()
+        || headers.iter().any(|h| h.is_empty())
+        || headers
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != headers.len()
+    {
+        return Err("CSV headers must be nonempty and unique".into());
+    }
+    let mut rows = Vec::new();
+    let mut count = 0usize;
+    for record in reader.records() {
+        let record = record.map_err(|e| e.to_string())?;
+        count += 1;
+        if limit.is_none_or(|n| rows.len() < n) {
+            let row: serde_json::Map<String, serde_json::Value> = headers
+                .iter()
+                .zip(record.iter())
+                .map(|(h, v)| (h.clone(), serde_json::json!(v)))
+                .collect();
+            rows.push(serde_json::Value::Object(row));
+        }
+    }
+    Ok(serde_json::json!({"headers":headers,"rows":rows,"count":count}))
+}
+#[tauri::command]
+pub async fn fs_read_csv(path: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || read_csv(std::path::Path::new(&path), limit))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn fs_read_image(path: String) -> Result<String, String> {
-    let bytes = fs::read(&path).map_err(|e| {
-        String::from(AppError::file_not_found(&format!("{}: {}", path, e)))
-    })?;
+    let bytes = fs::read(&path)
+        .map_err(|e| String::from(AppError::file_not_found(&format!("{}: {}", path, e))))?;
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
@@ -120,9 +148,11 @@ pub async fn fs_save_file(
     match dest.and_then(|fp| fp.into_path().ok()) {
         Some(dest_path) => {
             let dest_str = dest_path.to_string_lossy().to_string();
-            fs::copy(&source_path, &dest_str).map_err(|e| {
-                format!("Failed to save file: {}", e)
-            })?;
+            super::artifacts::copy_preserving_source(
+                std::path::Path::new(&source_path),
+                &dest_path,
+            )
+            .map_err(|e| format!("Failed to save file: {}", e))?;
             Ok(Some(dest_str))
         }
         None => Ok(None), // User cancelled
@@ -219,9 +249,8 @@ fn plot_sort_key(path: &str) -> (u8, u8, u8, String) {
 
 #[tauri::command]
 pub async fn fs_read_text_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| {
-        String::from(AppError::file_not_found(&format!("{}: {}", path, e)))
-    })
+    fs::read_to_string(&path)
+        .map_err(|e| String::from(AppError::file_not_found(&format!("{}: {}", path, e))))
 }
 
 #[tauri::command]
@@ -235,11 +264,8 @@ pub async fn fs_list_output_plots(output_dir: String) -> Result<Vec<String>, Str
     let mut plots = Vec::new();
 
     // Search in output_dir root and common subdirectories (figures/, plots/)
-    let search_dirs: Vec<std::path::PathBuf> = vec![
-        base.to_path_buf(),
-        base.join("figures"),
-        base.join("plots"),
-    ];
+    let search_dirs: Vec<std::path::PathBuf> =
+        vec![base.to_path_buf(), base.join("figures"), base.join("plots")];
 
     for dir in &search_dirs {
         if !dir.exists() {
@@ -254,14 +280,6 @@ pub async fn fs_list_output_plots(output_dir: String) -> Result<Vec<String>, Str
             if let Some(ext) = path.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
                 if image_extensions.contains(&ext_str.as_str()) {
-                    // Only include analysis-generated plots (Binary_*, Survival_*)
-                    // to exclude unrelated images the user may have in the directory
-                    let stem = path.file_stem()
-                        .map(|s| s.to_string_lossy().to_lowercase())
-                        .unwrap_or_default();
-                    if !stem.starts_with("binary") && !stem.starts_with("survival") && !stem.starts_with("surv") {
-                        continue;
-                    }
                     // Return path relative to output_dir
                     if let Ok(rel) = path.strip_prefix(base) {
                         plots.push(rel.to_string_lossy().to_string());
@@ -272,10 +290,7 @@ pub async fn fs_list_output_plots(output_dir: String) -> Result<Vec<String>, Str
     }
 
     // Normalize path separators to forward slash (Windows uses backslash)
-    let plots: Vec<String> = plots
-        .into_iter()
-        .map(|p| p.replace('\\', "/"))
-        .collect();
+    let plots: Vec<String> = plots.into_iter().map(|p| p.replace('\\', "/")).collect();
 
     // Sort: Binary first, then Survival, then others.
     // Within each group, use predefined plot order.

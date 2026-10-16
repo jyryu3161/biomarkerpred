@@ -1,11 +1,7 @@
 mod commands;
+#[cfg(test)]
+mod integration_tests;
 mod models;
-
-use commands::analysis::AnalysisProcess;
-use commands::model::PredictionProcess;
-use commands::ora::OraProcess;
-use commands::setup::SetupProcess;
-use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,62 +17,38 @@ pub fn run() {
             }
             Ok(())
         })
-        .manage(AnalysisProcess {
-            child: Mutex::new(None),
-        })
-        .manage(OraProcess {
-            child: Mutex::new(None),
-        })
-        .manage(SetupProcess {
-            child: Mutex::new(None),
-        })
-        .manage(PredictionProcess {
-            child: Mutex::new(None),
-        })
+        .manage(commands::engine::EngineState::default())
         .invoke_handler(tauri::generate_handler![
-            // Runtime
-            commands::runtime::runtime_detect,
-            // File system
+            commands::engine::engine_call,
+            commands::engine::engine_start,
+            commands::engine::engine_cancel,
+            commands::engine::engine_job_status,
+            commands::artifacts::engine_read_run,
+            commands::runtime::engine_schema,
+            commands::runtime::engine_get_settings,
+            commands::runtime::engine_save_settings,
+            commands::runtime::runtime_pull_image,
             commands::fs_ops::fs_pick_file,
             commands::fs_ops::fs_pick_directory,
             commands::fs_ops::fs_read_csv_header,
+            commands::fs_ops::fs_read_csv,
             commands::fs_ops::fs_read_image,
             commands::fs_ops::fs_read_text_file,
             commands::fs_ops::fs_list_output_plots,
             commands::fs_ops::fs_save_file,
             commands::fs_ops::fs_open_directory,
-            // Config
             commands::config::config_load_yaml,
             commands::config::config_save_yaml,
             commands::config::config_list_presets,
             commands::config::config_load_preset,
-            commands::config::config_validate,
-            // Analysis
-            commands::analysis::analysis_run,
-            commands::analysis::analysis_cancel,
-            // Open Targets
             commands::opentargets::opentargets_search_diseases,
             commands::opentargets::opentargets_fetch_genes,
             commands::opentargets::opentargets_list_cached,
             commands::opentargets::opentargets_delete_cached,
             commands::opentargets::opentargets_count_filtered,
-            // Runtime
-            commands::runtime::runtime_check_deps,
-            // ORA / Pathway Analysis
-            commands::ora::ora_run,
-            commands::ora::ora_cancel,
-            // Setup
-            commands::setup::setup_check_env,
-            commands::setup::setup_install_env,
-            commands::setup::setup_cancel,
-            commands::setup::setup_pull_docker,
-            commands::setup::setup_check_image_update,
-            // Model / Prediction
             commands::model::model_load,
             commands::model::model_save,
             commands::model::model_check_exists,
-            commands::model::prediction_run,
-            commands::model::prediction_cancel,
             commands::model::prediction_read_results,
         ])
         .run(tauri::generate_context!())

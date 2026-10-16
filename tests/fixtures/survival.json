@@ -1,0 +1,24 @@
+{
+  "config_version": 1,
+  "analysis_type": "survival",
+  "data_file": "survival.csv",
+  "output_dir": "../../results/fixtures/survival",
+  "sample_id": "sample",
+  "time_variable": "OS.year",
+  "event": "OS",
+  "group_column": "patient",
+  "clinical_columns": [
+    "age",
+    "sex"
+  ],
+  "horizon": 3,
+  "time_unit": "years",
+  "outer_folds": 3,
+  "inner_folds": 2,
+  "max_features": 3,
+  "panel_sizes": [
+    1,
+    3
+  ],
+  "bootstrap_samples": 0
+}

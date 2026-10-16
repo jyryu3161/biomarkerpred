@@ -1,67 +1,28 @@
-FROM rocker/r-ver:4.4.2
+# Both stages and the complete R dependency graph are immutable inputs.
+FROM ghcr.io/prefix-dev/pixi:0.71.2@sha256:d4667958b8f65d26a89ba50f29ddd676a5c2d3ccef367720b265573925cbfbdf AS runtime
+WORKDIR /opt/biomarkerpred
+COPY pixi.toml pixi.lock ./
+RUN pixi install --locked
 
-LABEL maintainer="jyryu3161"
-LABEL description="BioMarkerPred - Biomarker Prediction Platform"
-LABEL version="0.4.0"
-LABEL changelog="v0.4.0: Add model save and prediction features"
-
-# System dependencies for R packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libxml2-dev \
-    libtiff-dev \
-    libpng-dev \
-    libfontconfig1-dev \
-    libfreetype6-dev \
-    libharfbuzz-dev \
-    libfribidi-dev \
-    cmake \
-    libglpk-dev \
-    fontconfig fonts-liberation \
-    && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -fv
-
-# Install CRAN packages from the Bioconductor-aligned repository set.
-# This keeps ggplot2 and related packages compatible with Bioconductor 3.20.
-RUN Rscript -e ' \
-  install.packages("BiocManager", repos="https://cloud.r-project.org"); \
-  options(repos = BiocManager::repositories()); \
-  install.packages(c( \
-    "yaml", "ggplot2", "caret", "ROCR", "pROC", "cutpointr", \
-    "coefplot", "nsROC", "survival", "svglite", "tiff", \
-    "reshape2", "gridExtra", "survminer", "pheatmap", \
-    "httr", "jsonlite", "igraph", "tidygraph", "ggraph", "ggrepel", \
-    "dplyr", "readr", "stringr", "tibble", "tidyr", \
-    "lme4", "locfit", "zoo" \
-  ), Ncpus=4) \
-'
-
-# Install Bioconductor core dependencies first (these must succeed before main packages)
-RUN Rscript -e 'BiocManager::install(c("AnnotationDbi", "GO.db", "org.Hs.eg.db"), ask=FALSE, update=FALSE)'
-
-# Install Bioconductor analysis packages (depend on core above)
-RUN Rscript -e 'BiocManager::install(c("DOSE", "GOSemSim", "enrichplot", "ggtree"), ask=FALSE, update=FALSE)'
-
-# Install main Bioconductor packages
-RUN Rscript -e 'BiocManager::install(c("clusterProfiler", "ReactomePA"), ask=FALSE, update=FALSE)'
-
-# Verify all installed
-RUN Rscript -e 'for (p in c("clusterProfiler","enrichplot","org.Hs.eg.db","ReactomePA")) { if (!requireNamespace(p, quietly=TRUE)) stop(paste(p,"not installed")) }'
-
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+LABEL org.opencontainers.image.title="BioMarkerPred research engine"
+LABEL org.opencontainers.image.version="0.5.0"
+# Snapshot fixes OS/font dependencies; Cairo embeds searchable Unicode text.
+RUN rm /etc/apt/sources.list.d/debian.sources && \
+    printf '%s\n' 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261005T000000Z bookworm main' \
+      > /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates fontconfig fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/* && fc-cache -f
+COPY --from=runtime /opt/biomarkerpred/.pixi/envs/default /opt/biomarkerpred/.pixi/envs/default
+ENV PATH="/opt/biomarkerpred/.pixi/envs/default/bin:${PATH}" \
+    BMP_ENGINE_ROOT=/app LANG=C.UTF-8 LC_ALL=C.UTF-8
 WORKDIR /app
-
-COPY Main_Binary.R \
-     Binary_TrainAUC_StepwiseSelection.R \
-     Main_Survival.R \
-     Survival_TrainAUC_StepwiseSelection.R \
-     Save_Model.R \
-     Predict_New.R \
-     ORA_PPI_Analysis.R \
-     ./
-
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
+COPY *.R ./
+COPY R/ ./R/
+COPY config/schema.json ./config/schema.json
+COPY pixi.toml pixi.lock ./runtime/
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN Rscript BiomarkerCLI.R doctor --json
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["--help"]

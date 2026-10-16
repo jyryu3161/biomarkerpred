@@ -1,21 +1,25 @@
-# RESPRED - Example Configuration
-workdir: "."
-data_file: Example_data.csv
-
-binary:
-  data_file: Example_data.csv
-  sample_id: sample
-  outcome: response
-  split_prop: 0.7
-  num_seed: 30    # Number of iterations (reduced for small datasets)
-  output_dir: results/binary
-  freq: 15        # Cutoff for most frequent significant genes (~50% of num_seed)
-  exclude: []
-  include: []
-  max_candidates_per_step: 200  # Maximum number of candidates to evaluate per forward step
-  prescreen_seeds: 10  # Number of seeds to use for pre-screening
-
-  # P-value adjustment and filtering options
-  # top_k: 100  # Optional: Select top K genes by adjusted p-value per iteration
-  # p_adjust_method: fdr  # P-value adjustment method: "fdr" (default) or "bonferroni"
-  # p_threshold: 0.05  # Adjusted p-value threshold (default: 0.05)
+# Synthetic fixture only; paths resolve relative to this configuration file.
+config_version: 1
+analysis_type: binary
+data_file: ../tests/fixtures/binary.csv
+output_dir: ../results/examples/binary
+sample_id: sample
+group_column: patient
+clinical_columns: [age, sex]
+outer_folds: 3
+inner_folds: 2
+repeats: 1
+seed: 1
+workers: 1
+models: [stepwise, elastic_net]
+feature_sets: [genes, clinical, combined]
+max_features: 3
+panel_sizes: [1, 3]
+# Small runnable demonstration, not a final research uncertainty budget.
+bootstrap_samples: 20
+selection_frequency: 0.5
+outcome: response
+positive_class: "1"
+negative_class: "0"
+positive_label: "Responder"
+negative_label: "Non-responder"

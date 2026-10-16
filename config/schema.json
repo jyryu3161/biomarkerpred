@@ -1,0 +1,648 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biomarkerpred.local/config/schema-v1.json",
+  "title": "BioMarkerPred configuration version 1",
+  "$defs": {
+    "analysis": {
+      "type": "object",
+      "properties": {
+        "config_version": {
+          "type": "integer",
+          "default": 1,
+          "const": 1
+        },
+        "analysis_type": {
+          "type": "string",
+          "default": "binary",
+          "enum": [
+            "binary",
+            "survival"
+          ]
+        },
+        "data_file": {
+          "type": "string",
+          "default": null,
+          "description": "CSV path; required. ID values and exact column names are preserved."
+        },
+        "output_dir": {
+          "type": "string",
+          "default": "results/binary",
+          "x-survival-default": "results/survival"
+        },
+        "sample_id": {
+          "type": "string",
+          "default": "sample"
+        },
+        "group_column": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "response",
+          "x-survival-default": null
+        },
+        "positive_class": {
+          "type": "string",
+          "default": "1"
+        },
+        "negative_class": {
+          "type": "string",
+          "default": "0"
+        },
+        "positive_label": {
+          "type": "string",
+          "default": "Responder"
+        },
+        "negative_label": {
+          "type": "string",
+          "default": "Non-responder"
+        },
+        "event": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "x-survival-default": "OS"
+        },
+        "time_variable": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "x-survival-default": "OS.year"
+        },
+        "time_unit": {
+          "type": "string",
+          "default": "years",
+          "enum": [
+            "days",
+            "months",
+            "years"
+          ]
+        },
+        "horizon": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "exclusiveMinimum": 0,
+          "x-survival-default": 5
+        },
+        "outer_folds": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 2
+        },
+        "inner_folds": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 2
+        },
+        "repeats": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1
+        },
+        "seed": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 0
+        },
+        "workers": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1
+        },
+        "max_features": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 1
+        },
+        "max_candidates_per_step": {
+          "type": "integer",
+          "default": 200,
+          "minimum": 1
+        },
+        "bootstrap_samples": {
+          "type": "integer",
+          "default": 200,
+          "minimum": 0
+        },
+        "selection_frequency": {
+          "type": "number",
+          "default": 0.5,
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "panel_sizes": {
+          "type": "array",
+          "default": [
+            1,
+            3,
+            5,
+            10
+          ],
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "minItems": 1
+        },
+        "models": {
+          "type": "array",
+          "default": [
+            "stepwise",
+            "elastic_net"
+          ],
+          "items": {
+            "enum": [
+              "stepwise",
+              "elastic_net"
+            ]
+          },
+          "minItems": 1
+        },
+        "feature_sets": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "enum": [
+              "genes",
+              "clinical",
+              "combined"
+            ]
+          },
+          "description": "Empty defaults to genes; with clinical_columns, defaults to genes, clinical, combined."
+        },
+        "clinical_columns": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "features": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "include": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "exclude": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "missing_threshold": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "imputation": {
+          "type": "string",
+          "default": "median",
+          "enum": [
+            "median"
+          ]
+        },
+        "p_adjust_method": {
+          "type": "string",
+          "default": "fdr",
+          "enum": [
+            "holm",
+            "hochberg",
+            "hommel",
+            "bonferroni",
+            "BH",
+            "BY",
+            "fdr",
+            "none"
+          ]
+        },
+        "p_threshold": {
+          "type": "number",
+          "default": 0.05,
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "top_k": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "minimum": 1
+        },
+        "alpha_grid": {
+          "type": "array",
+          "default": [
+            0.1,
+            0.5,
+            1
+          ],
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 1
+        },
+        "evidence": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "default": null,
+          "properties": {
+            "gene_file": {
+              "type": "string"
+            },
+            "score_threshold": {
+              "type": "number",
+              "default": 0,
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source": {
+              "type": "string"
+            },
+            "disease_name": {
+              "type": "string"
+            },
+            "efo_id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "retrieved_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "gene_file"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true,
+      "description": "Version 1 analysis fields and authoritative runtime defaults. Arrays remain arrays in saved JSON. CamelCase aliases and legacy sections are accepted by normalization."
+    }
+  },
+  "type": "object",
+  "properties": {
+    "config_version": {
+      "type": "integer",
+      "default": 1,
+      "const": 1
+    },
+    "analysis_type": {
+      "type": "string",
+      "default": "binary",
+      "enum": [
+        "binary",
+        "survival"
+      ]
+    },
+    "data_file": {
+      "type": "string",
+      "default": null,
+      "description": "CSV path; required. ID values and exact column names are preserved."
+    },
+    "output_dir": {
+      "type": "string",
+      "default": "results/binary",
+      "x-survival-default": "results/survival"
+    },
+    "sample_id": {
+      "type": "string",
+      "default": "sample"
+    },
+    "group_column": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "outcome": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": "response",
+      "x-survival-default": null
+    },
+    "positive_class": {
+      "type": "string",
+      "default": "1"
+    },
+    "negative_class": {
+      "type": "string",
+      "default": "0"
+    },
+    "positive_label": {
+      "type": "string",
+      "default": "Responder"
+    },
+    "negative_label": {
+      "type": "string",
+      "default": "Non-responder"
+    },
+    "event": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "x-survival-default": "OS"
+    },
+    "time_variable": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "x-survival-default": "OS.year"
+    },
+    "time_unit": {
+      "type": "string",
+      "default": "years",
+      "enum": [
+        "days",
+        "months",
+        "years"
+      ]
+    },
+    "horizon": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "default": null,
+      "exclusiveMinimum": 0,
+      "x-survival-default": 5
+    },
+    "outer_folds": {
+      "type": "integer",
+      "default": 5,
+      "minimum": 2
+    },
+    "inner_folds": {
+      "type": "integer",
+      "default": 3,
+      "minimum": 2
+    },
+    "repeats": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1
+    },
+    "seed": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 0
+    },
+    "workers": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1
+    },
+    "max_features": {
+      "type": "integer",
+      "default": 10,
+      "minimum": 1
+    },
+    "max_candidates_per_step": {
+      "type": "integer",
+      "default": 200,
+      "minimum": 1
+    },
+    "bootstrap_samples": {
+      "type": "integer",
+      "default": 200,
+      "minimum": 0
+    },
+    "selection_frequency": {
+      "type": "number",
+      "default": 0.5,
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "panel_sizes": {
+      "type": "array",
+      "default": [
+        1,
+        3,
+        5,
+        10
+      ],
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "minItems": 1
+    },
+    "models": {
+      "type": "array",
+      "default": [
+        "stepwise",
+        "elastic_net"
+      ],
+      "items": {
+        "enum": [
+          "stepwise",
+          "elastic_net"
+        ]
+      },
+      "minItems": 1
+    },
+    "feature_sets": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "enum": [
+          "genes",
+          "clinical",
+          "combined"
+        ]
+      },
+      "description": "Empty defaults to genes; with clinical_columns, defaults to genes, clinical, combined."
+    },
+    "clinical_columns": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "features": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "include": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "exclude": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "missing_threshold": {
+      "type": "number",
+      "default": 0.2,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "imputation": {
+      "type": "string",
+      "default": "median",
+      "enum": [
+        "median"
+      ]
+    },
+    "p_adjust_method": {
+      "type": "string",
+      "default": "fdr",
+      "enum": [
+        "holm",
+        "hochberg",
+        "hommel",
+        "bonferroni",
+        "BH",
+        "BY",
+        "fdr",
+        "none"
+      ]
+    },
+    "p_threshold": {
+      "type": "number",
+      "default": 0.05,
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "top_k": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "default": null,
+      "minimum": 1
+    },
+    "alpha_grid": {
+      "type": "array",
+      "default": [
+        0.1,
+        0.5,
+        1
+      ],
+      "items": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minItems": 1
+    },
+    "evidence": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null,
+      "properties": {
+        "gene_file": {
+          "type": "string"
+        },
+        "score_threshold": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source": {
+          "type": "string"
+        },
+        "disease_name": {
+          "type": "string"
+        },
+        "efo_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "retrieved_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "gene_file"
+      ],
+      "additionalProperties": true
+    },
+    "binary": {
+      "$ref": "#/$defs/analysis"
+    },
+    "survival": {
+      "$ref": "#/$defs/analysis"
+    },
+    "workdir": {
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "binary",
+        "survival"
+      ]
+    },
+    "num_seed": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Legacy migration input only; does not control nested validation."
+    },
+    "freq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Legacy count converted to freq/num_seed."
+    }
+  },
+  "additionalProperties": true,
+  "description": "Supply flat analysis fields or a binary/survival section. Paths relative to explicit workdir, otherwise the config file directory. Unknown extension options are preserved and surfaced in normalization warnings."
+}

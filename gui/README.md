@@ -1,73 +1,53 @@
-# React + TypeScript + Vite
+# BioMarkerPred desktop
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The Tauri desktop calls the same `BiomarkerCLI.R` engine used by the shell. It bundles all root R entrypoints, `R/*.R` and `config/schema.json`; it does not bundle R itself. The exact command/event contract is in [docs/desktop-api.md](../docs/desktop-api.md).
 
-Currently, two official plugins are available:
+## Run from source
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Use Node **22.18.0**, npm **11.9.0**, Rust **1.90.0**, and the required native Tauri libraries. Linux needs WebKitGTK 4.1, GTK 3, AppIndicator, librsvg and patchelf development/runtime packages. The Linux review container is defined in [tests/runtime/Dockerfile.rust](../tests/runtime/Dockerfile.rust). Release CI verifies Windows installed MSI and EXE with real IPC; macOS verifies the installed bundled engine and app launch. Read that release's execution evidence before claiming a specific platform passed.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+# Repository root:
+./run_gui.sh
+# Or, after preparing the tools:
+cd gui
+npm ci
+npm run tauri -- dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`npm run dev` alone serves the browser UI but cannot provide desktop IPC, dialogs or engine execution. It is useful with the explicitly simulated browser test bridge. The production desktop is built with:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run tauri -- build --ci -- --locked
 ```
+
+Run `npm test`, `npm run lint` and `npm run build` before packaging. Build resources are staged by Rust `build.rs`. Runtime engine discovery uses installed resource paths, independent of the caller's current directory; a debug checkout fallback supports development.
+
+## Connect a runtime
+
+In **Settings**, select either local R or Docker, save settings and run the doctor. Local R needs no Docker. For the repository's Linux locked runtime, use the absolute path to `.pixi/envs/default/bin/Rscript` after `../install.sh`. For Docker, the release default is `jyryu3161/biomarkerpred:v0.5.0`. Start Docker Desktop/Engine with Linux containers, choose **Pull configured image**, save settings and run the doctor. Existing saved settings are preserved. Developers can instead build/select `biomarkerpred-engine:local` explicitly.
+
+The doctor must pass core-package, Cairo, PNG and TIFF checks. Native GO databases remain optional; the offline versioned GMT workflow is available in the core image. CJK font availability matters for readable reports; the production engine image includes Noto CJK.
+
+## Research workflow
+
+1. In **Analysis setup**, import a YAML/JSON configuration or choose a CSV and exact role/feature columns. Preserve patient groups, binary outcome codes/labels, and survival time unit/horizon. Choose resampling, candidate panels and model arms. Run QC and inspect exclusions/warnings before enabling analysis. Editing a field invalidates previous QC.
+2. The global job panel shows the operation and actual saved run directory. Use **Inspect actual run** to view its artifacts. A zero process exit alone does not imply success: manifest and required artifact checks also apply. Unverified cancellation remains active with a retry option.
+3. **Results & history** reads persistent manifests, compares selected runs with compatibility information, opens saved HTML/PDF reports, and supports compatible resume/report regeneration. Failed and partial runs remain visible; unavailable metrics keep their reasons.
+4. **Prediction & evaluation** loads a frozen `.bmpmodel` and scores a new CSV. Prediction does not need outcomes; evaluation does. A valid null model is supported. Survival units must match explicitly. External metrics, required-predictor drift and cohort overlap remain separate from development performance.
+5. **Pathways & evidence** verifies a completed development source before starting an isolated derivative. Supply a versioned GMT/term-map and optional exact identifier mapping. STRING expansion is explicit and defaults to zero. Inspect mapped backgrounds, original/expanded sets, ranked GSEA, confidence-filtered draggable networks and each original source gene sharing a node.
+
+Open Targets fetches public disease-gene associations into immutable snapshots; cached entries retain their disease/query context. Missing scores/channels stay unavailable. Neither public functional association networks nor disease association scores establish drug-response prediction or causal mechanisms. Patient CSV rows are not sent to these evidence services.
+
+## Verification scope
+
+[Frontend unit tests](src/__tests__) cover configuration and state contracts. Rust integration tests exercise real R, worker process trees and Docker when their environment gates are configured. The reproducible browser runner creates synthetic runs and uses real CLI QC/scoring plus simulated IPC events/dialogs:
+
+```bash
+# From repository root, after building gui/dist:
+python -m pip install -r tests/requirements-browser.txt
+python -m playwright install chromium
+python scripts/ci_browser.py --rscript "$PWD/.pixi/envs/default/bin/Rscript" --output /tmp/bmp-browser-review
+```
+
+This browser suite does not prove native packaged desktop behavior. The separate [tests/test_native_desktop.py](../tests/test_native_desktop.py) check passed against the installed Linux `.deb` under Xvfb: real Tauri IPC resolved the packaged engine and performed doctor, QC, analysis, artifact/model inspection and exact-ID prediction without a repository-source mount. It used a separately supplied locked R runtime. Test-environment details and limitations are recorded in the [roadmap](../docs/implementation-roadmap.md). Release CI requires installed Windows MSI/NSIS IPC, both binary/Cox CLI workflows, graphics and real PSOCK/taskkill cancellation. macOS uses the native tauri-driver route, which has no WKWebView driver: its gate covers bundled R/CLI and app launch, not native IPC or Intel execution. Unsigned Windows and unnotarized macOS packages retain SmartScreen/Gatekeeper restrictions; no signing credentials are bundled.

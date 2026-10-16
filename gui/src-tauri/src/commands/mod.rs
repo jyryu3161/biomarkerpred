@@ -1,11 +1,13 @@
-pub mod analysis;
+pub mod artifacts;
 pub mod config;
+pub mod engine;
+pub mod engine_plan;
+pub mod engine_process;
+pub mod engine_types;
 pub mod fs_ops;
 pub mod model;
 pub mod opentargets;
-pub mod ora;
 pub mod runtime;
-pub mod setup;
 
 /// Suppress the console window that flashes on Windows when spawning child processes.
 /// No-op on non-Windows platforms.
@@ -41,10 +43,7 @@ pub(crate) fn find_docker() -> String {
             "/opt/homebrew/bin/docker",
         ]
     } else if cfg!(target_os = "linux") {
-        vec![
-            "/usr/local/bin/docker",
-            "/usr/bin/docker",
-        ]
+        vec!["/usr/local/bin/docker", "/usr/bin/docker"]
     } else {
         // Windows: rely on find_executable (which uses `where`)
         vec![]

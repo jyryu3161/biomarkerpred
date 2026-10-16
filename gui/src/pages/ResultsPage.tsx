@@ -1,436 +1,193 @@
-import { useState, useEffect, useRef } from "react";
-import { useAnalysisStore } from "@/stores/analysisStore";
+import { useState } from "react";
+import { api } from "@/lib/api";
 import {
-  readImageBase64,
-  listOutputPlots,
-  saveFile,
-  openDirectory,
-  checkModelExists,
-} from "@/lib/tauri/commands";
-
-function LogPanel() {
-  const logs = useAnalysisStore((s) => s.logs);
-  const status = useAnalysisStore((s) => s.status);
-  const progress = useAnalysisStore((s) => s.progress);
-  const logEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs.length]);
-
-  // Scroll to bottom on mount (when navigating back to this page)
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "instant" });
-  }, []);
-
+  errorText,
+  object,
+  records,
+  responseError,
+  strings,
+  text,
+} from "@/lib/value";
+import type { JsonObject } from "@/lib/types";
+import { openRun, useWorkspace } from "@/stores/workspace";
+import { Facts, Notice, PathField, Section } from "@/components/Common";
+import { MetricScope } from "@/components/MetricsView";
+import { RunDetails } from "@/components/RunDetails";
+export function ResultsPage() {
+  const { settings, config, run, runLoading, runError } = useWorkspace();
+  const [root, setRoot] = useState(
+    settings?.outputRoot || text(config.output_dir, ""),
+  );
+  const [manual, setManual] = useState("");
+  const [history, setHistory] = useState<JsonObject[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparison, setComparison] = useState<JsonObject | null>(null);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const [searched, setSearched] = useState(false);
+  const act = async (fn: () => Promise<void>) => {
+    setWorking(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setWorking(false);
+    }
+  };
+  const refresh = () =>
+    act(async () => {
+      const result = await api.call({
+        operation: "runs",
+        options: { output: root },
+        ...(settings ? { settings } : {}),
+      });
+      if (!result.success) throw new Error(responseError(result));
+      setHistory(records(result.result.runs));
+      setSearched(true);
+    });
   return (
-    <div className="border border-border rounded-lg p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium">Execution Log</h3>
-        {status === "running" && progress.total > 0 && (
-          <div className="flex items-center gap-3">
-            <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.round((progress.current / progress.total) * 100)}%`,
+    <div className="stack">
+      <header>
+        <p className="eyebrow">RECORDED EXPERIMENTS</p>
+        <h1>Results & history</h1>
+        <p>
+          Inspect completed and unfinished runs, compare compatible cohorts and
+          reopen their saved reports.
+        </p>
+      </header>
+      <Section title="Run history">
+        <PathField
+          label="History output root"
+          value={root}
+          onChange={(value) => {
+            setRoot(value);
+            setSelected([]);
+            setComparison(null);
+            setHistory([]);
+            setSearched(false);
+          }}
+          directory
+        />
+        <div className="row">
+          <button disabled={working || !root} onClick={() => void refresh()}>
+            Refresh run history
+          </button>
+          <button
+            disabled={working || selected.length < 2}
+            onClick={() =>
+              void act(async () => {
+                const response = await api.call({
+                  operation: "compare",
+                  options: { run: selected },
+                  ...(settings ? { settings } : {}),
+                });
+                if (!response.success) throw new Error(responseError(response));
+                setComparison(response.result);
+              })
+            }
+          >
+            Compare selected runs ({selected.length})
+          </button>
+        </div>
+        {working && <p>Reading recorded runs…</p>}
+        {error && <Notice tone="error">{error}</Notice>}
+        {searched && !history.length && (
+          <p>No run manifests found under this root.</p>
+        )}
+        <div className="history-list">
+          {history.map((item) => {
+            const path = text(item.run_dir);
+            return (
+              <article key={path}>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    aria-label={`Compare ${text(item.run_id)}`}
+                    checked={selected.includes(path)}
+                    disabled={item.operation === "ora"}
+                    onChange={(e) => {
+                      setComparison(null);
+                      setSelected(
+                        e.target.checked
+                          ? [...selected, path]
+                          : selected.filter((entry) => entry !== path),
+                      );
+                    }}
+                  />
+                  <span>
+                    <strong>{text(item.run_id)}</strong>
+                    <small>
+                      {text(item.analysis_type, "pathway")} ·{" "}
+                      {text(item.operation, "development")} ·{" "}
+                      {text(item.created_at, "")}
+                    </small>
+                  </span>
+                </label>
+                <span className={`status-badge ${text(item.status)}`}>
+                  {text(item.status)}
+                </span>
+                <button onClick={() => void openRun(path)}>Open run</button>
+                <code>{path}</code>
+              </article>
+            );
+          })}
+        </div>
+        <details>
+          <summary>Open a run directory directly</summary>
+          <PathField
+            label="Run directory"
+            value={manual}
+            onChange={setManual}
+            directory
+          />
+          <button
+            disabled={!manual || runLoading}
+            onClick={() => void openRun(manual)}
+          >
+            Open run directory
+          </button>
+        </details>
+      </Section>
+      {comparison && (
+        <Section title="Recorded comparison">
+          <p>{text(comparison.interpretation)}</p>
+          {records(comparison.runs).map((item) => (
+            <details key={text(item.run_dir)} open>
+              <summary>
+                {text(item.run_id)} ·{" "}
+                {item.comparable_to_first === true
+                  ? "Compatible with first run"
+                  : "Separate comparison group"}
+              </summary>
+              <Facts
+                value={{
+                  comparison_group: item.comparison_group,
+                  incompatibilities: item.incompatibilities,
+                  analysis_type: item.analysis_type,
+                  status: item.status,
                 }}
               />
-            </div>
-            <span className="text-xs text-muted-foreground font-mono">
-              {progress.current}/{progress.total} — {progress.message}
-            </span>
-          </div>
-        )}
-      </div>
-      <div className="bg-muted/30 rounded p-3 h-48 overflow-y-auto font-mono text-xs space-y-0.5">
-        {logs.length === 0 ? (
-          <p className="text-muted-foreground">No log output yet.</p>
-        ) : (
-          logs.map((line, i) => (
-            <div key={i} className="text-muted-foreground whitespace-pre-wrap">
-              {line}
-            </div>
-          ))
-        )}
-        <div ref={logEndRef} />
-      </div>
-    </div>
-  );
-}
-
-/** Group plot files by stem name (e.g., Binary_ROCcurve → {svg, tiff}) */
-function groupByName(
-  allFiles: string[],
-): { name: string; label: string; formats: { ext: string; relPath: string }[] }[] {
-  const map = new Map<string, { ext: string; relPath: string }[]>();
-
-  for (const f of allFiles) {
-    const basename = f.replace(/^.*[/\\]/, "");
-    const dotIdx = basename.lastIndexOf(".");
-    if (dotIdx === -1) continue;
-    const stem = basename.slice(0, dotIdx);
-    const ext = basename.slice(dotIdx + 1).toLowerCase();
-    if (!map.has(stem)) map.set(stem, []);
-    map.get(stem)!.push({ ext, relPath: f });
-  }
-
-  return Array.from(map.entries()).map(([stem, formats]) => ({
-    name: stem,
-    label: stem.replace(/^Binary_|^Survival_/i, "").replace(/_/g, " "),
-    formats: formats.sort((a, b) => {
-      // SVG first, then PNG, then TIFF, then PDF
-      const order: Record<string, number> = { svg: 0, png: 1, tiff: 2, pdf: 3 };
-      return (order[a.ext] ?? 9) - (order[b.ext] ?? 9);
-    }),
-  }));
-}
-
-function PlotViewer({
-  outputDir,
-  allFiles,
-}: {
-  outputDir: string;
-  allFiles: string[];
-}) {
-  const [selectedPlot, setSelectedPlot] = useState<string | null>(null);
-  const [imageData, setImageData] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Displayable files: SVG and PNG only (TIFF can't render in browser)
-  const displayable = allFiles.filter(
-    (f) => f.endsWith(".svg") || f.endsWith(".png"),
-  );
-
-  const sections = groupByAnalysisType(displayable);
-
-  // Auto-select first plot
-  useEffect(() => {
-    if (displayable.length > 0 && !selectedPlot) {
-      setSelectedPlot(displayable[0]);
-    }
-  }, [displayable.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!selectedPlot || !outputDir) {
-      setImageData(null);
-      return;
-    }
-    const path = `${outputDir}/${selectedPlot}`;
-    setError(null);
-    readImageBase64(path)
-      .then((data: string) => {
-        const ext = selectedPlot.split(".").pop()?.toLowerCase();
-        const mime = ext === "svg" ? "image/svg+xml" : "image/png";
-        setImageData(`data:${mime};base64,${data}`);
-      })
-      .catch((e: unknown) => {
-        setError(`Failed to load: ${e}`);
-        setImageData(null);
-      });
-  }, [selectedPlot, outputDir]);
-
-  if (displayable.length === 0) return null;
-
-  return (
-    <div className="border border-border rounded-lg p-4">
-      <h3 className="text-sm font-medium mb-3">Plot Preview</h3>
-
-      {/* Sections: Binary Classification / Survival Analysis */}
-      <div className="mb-3 border-b border-border pb-3 space-y-2">
-        {sections.map(({ section, files }, si) => (
-          <div key={section}>
-            {/* Section header — only shown when multiple sections exist */}
-            {sections.length > 1 && (
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1 mt-1">
-                {section}
-              </p>
-            )}
-            <div className="flex gap-1 flex-wrap">
-              {files.map((plot) => (
-                <button
-                  key={plot}
-                  onClick={() => setSelectedPlot(plot)}
-                  className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
-                    selectedPlot === plot
-                      ? "bg-primary/10 text-primary border border-primary/40 font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
-                  }`}
-                >
-                  {plotLabel(plot)}
-                </button>
-              ))}
-            </div>
-            {/* Divider between sections */}
-            {si < sections.length - 1 && (
-              <div className="mt-2 border-t border-dashed border-border/60" />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {error && <p className="text-xs text-destructive mb-2">{error}</p>}
-
-      <div className="bg-muted/20 rounded min-h-[300px] flex items-center justify-center">
-        {imageData ? (
-          <img
-            src={imageData}
-            alt={selectedPlot ?? "plot"}
-            className="max-w-full max-h-[500px] object-contain"
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {selectedPlot ? "Loading plot..." : "Select a plot to view"}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ExportPanel({ outputDir, allFiles }: { outputDir: string; allFiles: string[] }) {
-  const [saving, setSaving] = useState<string | null>(null);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-
-  const groups = groupByName(allFiles);
-
-  const handleSave = async (relPath: string) => {
-    const filename = relPath.replace(/^.*\//, "");
-    const sourcePath = `${outputDir}/${relPath}`;
-    setSaving(relPath);
-    setSavedMsg(null);
-    try {
-      const dest = await saveFile(sourcePath, filename);
-      if (dest) {
-        setSavedMsg(`Saved: ${dest}`);
-      }
-    } catch (e) {
-      setSavedMsg(`Error: ${e}`);
-    } finally {
-      setSaving(null);
-    }
-  };
-
-  const handleOpenFolder = async () => {
-    try {
-      await openDirectory(outputDir);
-    } catch {
-      // fallback: ignore if directory can't be opened
-    }
-  };
-
-  if (groups.length === 0) return null;
-
-  return (
-    <div className="border border-border rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium">Export Figures</h3>
-        <button
-          onClick={handleOpenFolder}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-        >
-          Open Folder
-        </button>
-      </div>
-
-      {savedMsg && (
-        <p
-          className={`text-xs mb-2 ${savedMsg.startsWith("Error") ? "text-destructive" : "text-green-600"}`}
-        >
-          {savedMsg}
-        </p>
+              {strings(item.incompatibilities).length > 0 && (
+                <Notice tone="warning">
+                  Do not rank this run together with the first:{" "}
+                  {strings(item.incompatibilities).join(", ")}.
+                </Notice>
+              )}
+              <Facts value={item.panel} />
+              <MetricScope value={item.primary} />
+              <details>
+                <summary>Compatibility criteria</summary>
+                <Facts value={object(item.criteria)} />
+              </details>
+            </details>
+          ))}
+        </Section>
       )}
-
-      <div className="space-y-1">
-        <div className="grid grid-cols-[1fr_auto] gap-2 items-center text-xs text-muted-foreground font-medium px-2 pb-1 border-b border-border">
-          <span>Figure</span>
-          <span>Save As</span>
-        </div>
-
-        {groups.map(({ name, label, formats }) => (
-          <div
-            key={name}
-            className="grid grid-cols-[1fr_auto] gap-2 items-center px-2 py-1.5 rounded hover:bg-muted/30"
-          >
-            <span className="text-sm truncate" title={name}>
-              {label}
-            </span>
-            <div className="flex gap-1.5">
-              {formats.map(({ ext, relPath }) => (
-                <button
-                  key={ext}
-                  onClick={() => handleSave(relPath)}
-                  disabled={saving === relPath}
-                  className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
-                    ext === "svg"
-                      ? "border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
-                      : ext === "tiff"
-                        ? "border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
-                        : ext === "png"
-                          ? "border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950"
-                          : "border-border text-muted-foreground hover:bg-muted/50"
-                  } disabled:opacity-50`}
-                  title={ext === "tiff" ? "TIFF 300 DPI (publication quality)" : ext.toUpperCase()}
-                >
-                  {saving === relPath ? "..." : ext.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <p className="text-xs text-muted-foreground mt-3">
-        SVG: scalable vector / TIFF: 300 DPI raster (publication-ready)
-      </p>
-    </div>
-  );
-}
-
-/** Split plots into Binary / Survival / Other sections, preserving Rust sort order. */
-function groupByAnalysisType(
-  plots: string[],
-): { section: string; files: string[] }[] {
-  const binary: string[] = [];
-  const survival: string[] = [];
-  const other: string[] = [];
-
-  for (const plot of plots) {
-    const base = plot.replace(/^.*[/\\]/, "").toLowerCase();
-    if (base.startsWith("binary")) binary.push(plot);
-    else if (base.startsWith("survival") || base.startsWith("surv")) survival.push(plot);
-    else other.push(plot);
-  }
-
-  const result: { section: string; files: string[] }[] = [];
-  if (binary.length > 0) result.push({ section: "Binary Classification", files: binary });
-  if (survival.length > 0) result.push({ section: "Survival Analysis", files: survival });
-  if (other.length > 0) result.push({ section: "Other", files: other });
-  return result;
-}
-
-/** Short display label for a plot path. */
-function plotLabel(plot: string): string {
-  return plot
-    .replace(/^.*[/\\]/, "")
-    .replace(/\.(png|tiff|svg|pdf)$/i, "")
-    .replace(/^Binary_|^Survival_/i, "")
-    .replace(/_/g, " ");
-}
-
-function SaveModelPanel({ outputDir }: { outputDir: string }) {
-  const [modelPath, setModelPath] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    checkModelExists(outputDir)
-      .then(setModelPath)
-      .catch(() => setModelPath(null));
-  }, [outputDir]);
-
-  if (!modelPath) return null;
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSavedMsg(null);
-    try {
-      const dest = await saveFile(modelPath, "model.bmpmodel");
-      if (dest) {
-        setSavedMsg(`Saved to: ${dest}`);
-      }
-    } catch (e) {
-      setSavedMsg(`Error: ${e}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="border border-border rounded-lg p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">Trained Model</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            Save the trained model for predicting new patients
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {saving ? "Saving..." : "Save Model"}
-        </button>
-      </div>
-      {savedMsg && (
-        <p
-          className={`text-xs mt-2 ${savedMsg.startsWith("Error") ? "text-destructive" : "text-green-600"}`}
-        >
-          {savedMsg}
-        </p>
-      )}
-    </div>
-  );
-}
-
-export function ResultsPage() {
-  const status = useAnalysisStore((s) => s.status);
-  const outputDir = useAnalysisStore((s) => s.outputDir);
-  const [allFiles, setAllFiles] = useState<string[]>([]);
-
-  const hasRun =
-    status === "completed" || status === "running" || status === "failed";
-  const showPlots = status === "completed" || (status !== "running" && outputDir);
-
-  // Clear previous plots when a new analysis starts; reload when complete
-  useEffect(() => {
-    if (status === "running") {
-      setAllFiles([]);
-      return;
-    }
-    if (!outputDir) {
-      setAllFiles([]);
-      return;
-    }
-    listOutputPlots(outputDir)
-      .then(setAllFiles)
-      .catch(() => setAllFiles([]));
-  }, [outputDir, status]);
-
-  return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      <h2 className="text-lg font-semibold">Results</h2>
-
-      {hasRun && <LogPanel />}
-
-      {showPlots && outputDir ? (
-        <>
-          {allFiles.length > 0 ? (
-            <>
-              <PlotViewer outputDir={outputDir} allFiles={allFiles} />
-              <ExportPanel outputDir={outputDir} allFiles={allFiles} />
-            </>
-          ) : status === "completed" ? (
-            <div className="border border-border rounded-lg p-8 text-center">
-              <p className="text-muted-foreground">
-                Analysis completed but no plots were generated.
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                This usually means no candidate genes were found. Try relaxing the p-value threshold or frequency cutoff.
-              </p>
-            </div>
-          ) : null}
-          {status === "completed" && <SaveModelPanel outputDir={outputDir} />}
-        </>
-      ) : !hasRun ? (
-        <div className="border border-border rounded-lg p-8 text-center">
-          <p className="text-muted-foreground">
-            Run an analysis to see results here.
-          </p>
-        </div>
-      ) : null}
+      {runLoading && <p role="status">Verifying and reading selected run…</p>}
+      {runError && <Notice tone="error">{runError}</Notice>}
+      {run && <RunDetails key={run.run_dir} run={run} />}
     </div>
   );
 }

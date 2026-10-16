@@ -1,0 +1,11 @@
+# Allowlist: patient data, evidence, outputs and caches never enter build context.
+**
+!Dockerfile
+!pixi.toml
+!pixi.lock
+!*.R
+!R/
+!R/*.R
+!config/
+!config/schema.json
+!docker-entrypoint.sh

@@ -1,0 +1,18 @@
+[workspace]
+name = "biomarkerpred"
+version = "0.5.0"
+description = "Shared BioMarkerPred research engine (validated Linux x86_64 runtime)"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+r-base = "==4.4.3"
+r-yaml = "==2.3.12"
+r-jsonlite = "==1.9.1"
+r-digest = "==0.6.39"
+r-survival = "==3.8_12"
+r-glmnet = "==4.1_10"
+r-proc = "==1.18.5"
+
+[tasks]
+foundation = "Rscript ../test_foundation.R"

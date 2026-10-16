@@ -86,7 +86,10 @@ mod tests {
     #[test]
     fn test_app_error_display() {
         let err = AppError::runtime_not_found("test detail");
-        assert_eq!(format!("{}", err), "[E001] R runtime not found. Please configure the R path in Settings.");
+        assert_eq!(
+            format!("{}", err),
+            "[E001] R runtime not found. Please configure the R path in Settings."
+        );
     }
 
     #[test]
