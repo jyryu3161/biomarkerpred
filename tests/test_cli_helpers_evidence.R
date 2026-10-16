@@ -51,14 +51,14 @@ local({
   manifest <- bmp_read_json(file.path(error$run_dir, "manifest.json"))
   stopifnot(identical(manifest$status, "failed"), identical(manifest$provenance$evidence$sha256, original_hash))
 
-  original_capabilities <- capabilities
-  on.exit(rm("capabilities", envir = .GlobalEnv), add = TRUE)
-  assign("capabilities", function(what) {
-    result <- original_capabilities(what)
-    result[names(result) == "png"] <- FALSE
-    result
+  original_graphics_probe <- bmp_cli_graphics_probe
+  on.exit(assign("bmp_cli_graphics_probe", original_graphics_probe, envir = .GlobalEnv), add = TRUE)
+  assign("bmp_cli_graphics_probe", function() {
+    original_graphics_probe(list(png = function(path) stop("PNG backend unavailable: install Cairo/PNG libraries.", call. = FALSE)))
   }, envir = .GlobalEnv)
   doctor <- bmp_cli_doctor()
-  stopifnot(!doctor$ok, !doctor$graphics$png, grepl("PNG", doctor$error))
+  assign("bmp_cli_graphics_probe", original_graphics_probe, envir = .GlobalEnv)
+  stopifnot(!doctor$ok, !doctor$graphics$png, grepl("PNG", doctor$error),
+    !doctor$graphics_exports$png$ok, grepl("install Cairo/PNG", doctor$graphics_exports$png$error))
   cat("CLI helper R checks passed: exact identifiers, identity races, original failure provenance and graphics readiness.\n")
 })
