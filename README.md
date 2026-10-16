@@ -156,7 +156,7 @@ Rust checks run in `gui/src-tauri` with `cargo test --locked`. Set `BMP_TEST_RSC
 
 Download installers from the project's GitHub Releases and verify `SHA256SUMS`. Windows MSI and EXE install the same app; choose one. This release has no commercial signing certificate. Windows SmartScreen may show an unknown-publisher prompt, and macOS downloads are not notarized and may be blocked by Gatekeeper. Follow your organization's software approval policy; do not disable system-wide security controls. The release notes distinguish actual native tests from build-only coverage.
 
-For local R on Windows x64 or Apple Silicon, install official R **4.4.3** first. The source release includes a separate hash-locked native binary package manifest and installer (Python 3.11 required):
+For local R on Windows x64 or Apple Silicon, install official R **4.4.3** first. The source release includes a separate hash-locked native binary package manifest and installer (Python 3.12.10 used by CI):
 
 ```powershell
 # Windows PowerShell, from the extracted source directory:

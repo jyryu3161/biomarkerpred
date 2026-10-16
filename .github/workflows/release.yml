@@ -34,7 +34,7 @@ jobs:
           node-version: '22.18.0'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11.14'
+          python-version: '3.12.10'
       - name: Release gate regression checks
         run: python tests/test_release_review.py
       - id: identity
@@ -82,7 +82,7 @@ jobs:
       - run: npm install --global npm@11.9.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11.14'
+          python-version: '3.12.10'
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: '1.90.0'
@@ -162,7 +162,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11.14'
+          python-version: '3.12.10'
       - name: Build and test the image that will be published
         run: |
           docker build --platform linux/amd64 --label org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }} -t jyryu3161/biomarkerpred:${{ needs.prepare.outputs.version }} .
@@ -191,7 +191,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11.14'
+          python-version: '3.12.10'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: installers-*
