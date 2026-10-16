@@ -6,6 +6,8 @@ The Tauri desktop calls the same `BiomarkerCLI.R` engine used by the shell. It b
 
 Use Node **22.18.0**, npm **11.9.0**, Rust **1.90.0**, and the required native Tauri libraries. Linux needs WebKitGTK 4.1, GTK 3, AppIndicator, librsvg and patchelf development/runtime packages. The Linux review container is defined in [tests/runtime/Dockerfile.rust](../tests/runtime/Dockerfile.rust). Release CI verifies Windows installed MSI and EXE with real IPC; macOS verifies the installed bundled engine and app launch. Read that release's execution evidence before claiming a specific platform passed.
 
+Native macOS R also requires [XQuartz 2.8.6](https://www.xquartz.org/releases/XQuartz-2.8.6.html) for Cairo's `/opt/X11` libraries. Install it before provisioning the native R package library, restart R/the app, and require a successful doctor result. Doctor opens and exports SVG, PDF, PNG and TIFF files to test the actual backend. See the [native runtime instructions](../README.md#installed-windows-and-macos-runtimes) for the pinned package and runtime setup.
+
 ```bash
 # Repository root:
 ./run_gui.sh

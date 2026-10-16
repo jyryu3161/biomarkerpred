@@ -91,6 +91,7 @@ jobs:
         with:
           workspaces: gui/src-tauri -> target
           shared-key: release-${{ matrix.label }}
+          cache-on-failure: true
       - uses: prefix-dev/setup-pixi@a0af7a228712d6121d37aba47adf55c1332c9c2e # v0.9.4
         if: runner.os == 'Linux'
         with:
@@ -109,12 +110,21 @@ jobs:
           r-version: '4.4.3'
           rtools-version: 'none'
           use-public-rspm: false
+      - name: Install hash-pinned XQuartz for native macOS Cairo libraries
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/XQuartz-2.8.6.pkg" https://github.com/XQuartz/XQuartz/releases/download/XQuartz-2.8.6/XQuartz-2.8.6.pkg
+          echo "9ac35a505095bfbd3009c3b4772f0c6421e2f79c4210ab908459270d1c447909  $RUNNER_TEMP/XQuartz-2.8.6.pkg" | shasum -a 256 --check
+          sudo installer -pkg "$RUNNER_TEMP/XQuartz-2.8.6.pkg" -target /
       - name: Install hash-locked native binary R packages and verify graphics
         if: runner.os != 'Linux'
         run: python scripts/provision_native_r.py --library "${{ runner.temp }}/bmp-r-library" --evidence "${{ runner.temp }}/native-r-runtime.json"
       - name: Native CLI binary/Cox/report workflow
         shell: bash
-        run: python tests/test_documented_workflow.py --rscript "$BMP_TEST_RSCRIPT"
+        run: |
+          "$BMP_TEST_RSCRIPT" tests/test_graphics_doctor.R
+          python tests/test_documented_workflow.py --rscript "$BMP_TEST_RSCRIPT"
       - name: Real R and native process-tree cancellation contracts
         working-directory: gui/src-tauri
         run: cargo fmt --check && cargo test --locked -- --nocapture

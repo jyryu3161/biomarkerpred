@@ -80,7 +80,7 @@ def main():
         program = any(name == prefix or name.startswith(prefix + '/') for prefix in allowed)
         frontend_config = name.startswith('gui/') and len(path.parts) == 2 and path.suffix in ('.json', '.ts', '.js', '.html')
         rust_config = name in ('gui/src-tauri/Cargo.toml', 'gui/src-tauri/Cargo.lock', 'gui/src-tauri/build.rs', 'gui/src-tauri/tauri.conf.json', 'gui/src-tauri/rustfmt.toml', 'gui/src-tauri/.gitignore')
-        if root_file or program or frontend_config or rust_config or name in ('Dockerfile', '.dockerignore', '.gitignore', 'LICENSE', 'LICENSE.txt'):
+        if root_file or program or frontend_config or rust_config or name in ('Dockerfile', '.dockerignore', '.gitignore', '.gitattributes', 'LICENSE', 'LICENSE.txt'):
             selected.append(name)
     # git archive reads committed bytes, never a changed checkout file.
     raw = subprocess.check_output(['git', 'archive', '--format=tar', f'--prefix=BioMarkerPred-{version}/', sha, '--', *selected], cwd=ROOT)

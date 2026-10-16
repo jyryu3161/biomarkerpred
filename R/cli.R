@@ -250,20 +250,71 @@ bmp_compare_runs <- function(paths, output = NULL) {
   }
   result
 }
+bmp_cli_graphics_probe <- function(devices = NULL) {
+  # capabilities() describes the R build, not whether its dynamic libraries load.
+  openers <- list(
+    svg = function(path) grDevices::svg(path, width = 3, height = 3),
+    pdf = function(path) grDevices::cairo_pdf(path, width = 3, height = 3),
+    png = function(path) grDevices::png(path, width = 300, height = 300, type = "cairo"),
+    tiff = function(path) grDevices::tiff(path, width = 300, height = 300, compression = "lzw", type = "cairo"))
+  if (!is.null(devices)) openers[names(devices)] <- devices
+  directory <- tempfile("bmp-graphics-doctor-")
+  if (!dir.create(directory)) stop("Cannot create the graphics diagnostic directory.", call. = FALSE)
+  on.exit(unlink(directory, recursive = TRUE), add = TRUE)
+  probe <- function(format) {
+    previous <- grDevices::dev.list(); current <- grDevices::dev.cur()
+    on.exit({
+      for (device in setdiff(grDevices::dev.list(), previous)) try(grDevices::dev.off(device), silent = TRUE)
+      if (current %in% grDevices::dev.list()) grDevices::dev.set(current)
+    }, add = TRUE)
+    path <- file.path(directory, paste0("probe.", format))
+    warnings <- character()
+    result <- withCallingHandlers(tryCatch({
+      openers[[format]](path)
+      created <- setdiff(grDevices::dev.list(), previous)
+      # Some failed Cairo openers only warn and return. Never draw on the null
+      # device (which would silently create Rplots.pdf) or a caller's device.
+      if (length(created) != 1L || !grDevices::dev.cur() %in% created) stop("Graphics backend did not open a device.", call. = FALSE)
+      graphics::plot.new(); graphics::text(.5, .5, "BioMarkerPred graphics probe")
+      grDevices::dev.off(created)
+      size <- file.info(path)$size
+      if (is.na(size) || size <= 0) stop("Graphics backend produced no output.", call. = FALSE)
+      header <- readBin(path, "raw", n = 1024L)
+      valid <- switch(format,
+        svg = grepl("<svg", rawToChar(header), fixed = TRUE),
+        pdf = identical(head(header, 5L), charToRaw("%PDF-")),
+        png = identical(head(header, 8L), as.raw(c(137, 80, 78, 71, 13, 10, 26, 10))),
+        tiff = identical(head(header, 4L), as.raw(c(73, 73, 42, 0))) || identical(head(header, 4L), as.raw(c(77, 77, 0, 42))))
+      if (!isTRUE(valid)) stop("Graphics backend produced an invalid file header.", call. = FALSE)
+      list(ok = TRUE, bytes = size)
+    }, error = function(error) list(ok = FALSE, error = conditionMessage(error))), warning = function(warning) {
+      warnings <<- c(warnings, conditionMessage(warning)); invokeRestart("muffleWarning")
+    })
+    result$warnings <- I(unique(warnings))
+    result
+  }
+  exports <- stats::setNames(lapply(names(openers), probe), names(openers))
+  passed <- vapply(exports, function(result) isTRUE(result$ok), logical(1))
+  list(graphics = list(cairo = unname(passed[["svg"]] && passed[["pdf"]]),
+    png = unname(passed[["png"]]), tiff = unname(passed[["tiff"]])), exports = exports)
+}
 bmp_cli_doctor <- function() {
   packages <- c("yaml", "jsonlite", "digest", "survival", "glmnet", "pROC")
   versions <- stats::setNames(lapply(packages, function(package) if (requireNamespace(package, quietly = TRUE)) as.character(utils::packageVersion(package)) else NULL), packages)
   missing <- packages[vapply(versions, is.null, logical(1))]
-  graphics <- capabilities(c("cairo", "png", "tiff"))
-  result <- c(list(ok = !length(missing) && all(graphics), operation = "doctor"), bmp_cli_version(),
+  probe <- bmp_cli_graphics_probe()
+  result <- c(list(ok = !length(missing) && all(unlist(probe$graphics)), operation = "doctor"), bmp_cli_version(),
     list(r_version = R.version.string, platform = R.version$platform, packages = versions, missing_packages = I(missing),
-      graphics = as.list(graphics), engine_root = bmp_repo_root,
+      graphics = probe$graphics, graphics_exports = probe$exports, engine_root = bmp_repo_root,
       schema = file.path(bmp_repo_root, "config", "schema.json"), optional_pathways = exists("bmp_pathway_analysis", mode = "function"),
       pathway_capabilities = list(offline_gmt = exists("bmp_pathway_analysis", mode = "function"), offline_term_mapping = TRUE, native_ranked_gsea = TRUE,
         string_transport = if (requireNamespace("curl", quietly = TRUE)) "curl POST" else "base libcurl GET (7000-byte limit)",
         optional_packages = stats::setNames(lapply(c("AnnotationDbi", "GO.db", "org.Hs.eg.db", "org.Mm.eg.db", "curl"), function(package) if (requireNamespace(package, quietly = TRUE)) as.character(utils::packageVersion(package)) else NULL), c("AnnotationDbi", "GO.db", "org.Hs.eg.db", "org.Mm.eg.db", "curl")),
         kegg_reactome = "Provide a versioned local GMT or term mapping; no online provider is silently assumed.")))
-  if (!isTRUE(result$ok)) result$error <- "Install missing core packages and an R build with Cairo PDF/SVG, PNG and TIFF support. Optional pathway packages are not required for core analysis."
+  if (!isTRUE(result$ok)) result$error <- paste(
+    "Install missing core packages and working Cairo PDF/SVG, PNG and TIFF libraries; see graphics_exports for failed exports.",
+    "On macOS install XQuartz (https://www.xquartz.org), which supplies /opt/X11 libraries, then restart R and rerun doctor.",
+    "Optional pathway packages are not required for core analysis.")
   result
 }
 bmp_cli_dispatch <- function(parsed) {

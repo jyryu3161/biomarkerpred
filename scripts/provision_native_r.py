@@ -55,11 +55,17 @@ def main():
     installed = json.loads(subprocess.check_output([args.rscript, '--vanilla', '-e', code, *ORDER], env=env, text=True))
     if installed != expected:
         raise RuntimeError(f'Installed versions differ: {installed} != {expected}')
-    doctor = subprocess.run([args.rscript, str(ROOT / 'BiomarkerCLI.R'), 'doctor', '--json'], env=env, text=True, capture_output=True, check=True)
+    doctor = subprocess.run([args.rscript, str(ROOT / 'BiomarkerCLI.R'), 'doctor', '--json'], env=env, text=True, encoding='utf-8', capture_output=True)
+    diagnosis = json.loads(doctor.stdout)
     evidence = {'platform': key, 'rscript': args.rscript, 'library': str(library), 'packages': packages,
-                'doctor': json.loads(doctor.stdout)}
+                'doctor': diagnosis}
     args.evidence.parent.mkdir(parents=True, exist_ok=True)
     args.evidence.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+    exports = diagnosis.get('graphics_exports', {})
+    if (doctor.returncode != 0 or diagnosis.get('ok') is not True
+            or any(diagnosis.get('graphics', {}).get(name) is not True for name in ('cairo', 'png', 'tiff'))
+            or any(exports.get(name, {}).get('ok') is not True for name in ('svg', 'pdf', 'png', 'tiff'))):
+        raise RuntimeError(f'Native R doctor failed actual graphics exports: {json.dumps(diagnosis)}\n{doctor.stderr}')
     if os.environ.get('GITHUB_ENV'):
         with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as stream:
             stream.write(f'R_LIBS_USER={library}\nBMP_TEST_RSCRIPT={args.rscript}\nBMP_RSCRIPT={args.rscript}\n')
