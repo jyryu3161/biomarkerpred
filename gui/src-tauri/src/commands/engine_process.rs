@@ -157,6 +157,7 @@ pub struct ProcessTarget {
     pub docker: Option<DockerProcess>,
     pub start_identity: Option<String>,
 }
+#[cfg(not(windows))]
 fn process_identity(pid: u32) -> Option<String> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     stat.rsplit_once(") ")?
@@ -164,6 +165,102 @@ fn process_identity(pid: u32) -> Option<String> {
         .split_whitespace()
         .nth(19)
         .map(str::to_owned)
+}
+#[cfg(windows)]
+fn process_identity(pid: u32) -> Option<String> {
+    windows_live_process_start(pid).map(|start| start.to_string())
+}
+#[cfg(windows)]
+fn windows_live_process_start(pid: u32) -> Option<u64> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, FILETIME, WAIT_TIMEOUT},
+        System::Threading::{
+            GetProcessTimes, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+            PROCESS_SYNCHRONIZE,
+        },
+    };
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+            0,
+            pid,
+        );
+        if handle.is_null() {
+            return None;
+        }
+        let mut created: FILETIME = std::mem::zeroed();
+        let mut exited: FILETIME = std::mem::zeroed();
+        let mut kernel: FILETIME = std::mem::zeroed();
+        let mut user: FILETIME = std::mem::zeroed();
+        let valid = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+            && GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) != 0;
+        CloseHandle(handle);
+        valid
+            .then_some((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+    }
+}
+pub fn job_owns_process(job: &Job, owner_pid: u32) -> bool {
+    let root = job.pid.load(Ordering::SeqCst);
+    #[cfg(not(windows))]
+    return owner_pid != 0 && owner_pid == root;
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, GetLastError, ERROR_NO_MORE_FILES, INVALID_HANDLE_VALUE},
+            System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+                TH32CS_SNAPPROCESS,
+            },
+        };
+        let target = job.target.lock().unwrap().clone();
+        let Some(target) = target.filter(|target| target.pid == root) else {
+            return false;
+        };
+        if target.start_identity.is_none() || process_identity(root) != target.start_identity {
+            return false;
+        }
+        // Rscript.exe can launch the R process which owns the lock. Require a
+        // live, creation-time-ordered ancestry chain to this exact launcher.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut parents = HashMap::new();
+        let mut next = unsafe { Process32FirstW(snapshot, &mut entry) };
+        while next != 0 {
+            parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+            next = unsafe { Process32NextW(snapshot, &mut entry) };
+        }
+        let complete = unsafe { GetLastError() } == ERROR_NO_MORE_FILES;
+        unsafe {
+            CloseHandle(snapshot);
+        }
+        if !complete {
+            return false;
+        }
+        let mut current = owner_pid;
+        let mut child_start = u64::MAX;
+        let mut seen = HashSet::new();
+        while current != 0 && seen.insert(current) {
+            let Some(start) = windows_live_process_start(current) else {
+                return false;
+            };
+            if start > child_start {
+                return false;
+            }
+            if current == root {
+                return Some(start.to_string()) == target.start_identity;
+            }
+            child_start = start;
+            let Some(parent) = parents.get(&current) else {
+                return false;
+            };
+            current = *parent;
+        }
+        false
+    }
 }
 #[derive(Debug)]
 pub struct ProcessOutput {
@@ -238,6 +335,9 @@ pub fn kill_tree(pid: u32, force: bool) -> Result<(), String> {
         if result != 0 {
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() != Some(libc::ESRCH) {
+                #[cfg(target_os = "macos")]
+                return macos_signal_error(pid, error, || process_table_group_alive(pid));
+                #[cfg(not(target_os = "macos"))]
                 return Err(format!(
                     "[termination-unverified] Cannot signal process group {pid}: {error}"
                 ));
@@ -262,12 +362,99 @@ pub fn kill_tree(pid: u32, force: bool) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(any(target_os = "macos", all(test, unix)))]
+fn macos_signal_error(
+    pid: u32,
+    error: std::io::Error,
+    inspect: impl FnOnce() -> Result<bool, String>,
+) -> Result<(), String> {
+    // Darwin can return EPERM for an unreaped zombie-only process group. The
+    // errno alone never establishes termination: inspect every group member.
+    if error.raw_os_error() == Some(libc::EPERM) && !inspect()? {
+        return Ok(());
+    }
+    Err(format!(
+        "[termination-unverified] Cannot signal process group {pid}: {error}"
+    ))
+}
+#[cfg(any(target_os = "macos", all(test, unix)))]
+fn parse_group_process_table(table: &str, group: u32, observer: u32) -> Result<bool, String> {
+    let invalid = || "[termination-unverified] Invalid or incomplete process table".to_owned();
+    let mut found_observer = false;
+    let mut alive = false;
+    for line in table.lines().filter(|line| !line.trim().is_empty()) {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.len() != 3 {
+            return Err(invalid());
+        }
+        let pid = fields[0].parse::<u32>().map_err(|_| invalid())?;
+        let pgid = fields[1].parse::<u32>().map_err(|_| invalid())?;
+        let state = fields[2].as_bytes()[0];
+        found_observer |= pid == observer;
+        if pgid == group {
+            match state {
+                b'Z' | b'X' | b'x' => (),
+                b'D' | b'I' | b'R' | b'S' | b'T' | b't' | b'U' | b'W' => alive = true,
+                _ => return Err(invalid()),
+            }
+        }
+    }
+    // An empty/truncated/error response must not be mistaken for an absent group.
+    if !found_observer {
+        return Err(invalid());
+    }
+    Ok(alive)
+}
+#[cfg(any(target_os = "macos", all(test, unix)))]
+fn process_table_group_alive(group: u32) -> Result<bool, String> {
+    use std::io::{Seek, SeekFrom};
+    let inspect = || -> Result<bool, String> {
+        // A file avoids blocked output pipes while waiting with a strict timeout.
+        let mut output = tempfile::tempfile().map_err(|e| e.to_string())?;
+        let mut child = Command::new("/bin/ps")
+            .args(["-axo", "pid=,pgid=,stat="])
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(output.try_clone().map_err(|e| e.to_string())?)
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let start = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+                break status;
+            }
+            if start.elapsed() > Duration::from_secs(1) {
+                let _ = child.kill();
+                // Reap without extending the caller's deadline if the OS is stuck.
+                std::thread::spawn(move || child.wait());
+                return Err("process table command timed out".into());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        if !status.success() {
+            return Err(format!("process table command failed: {status}"));
+        }
+        output.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        let mut table = String::new();
+        output
+            .take(16 * 1024 * 1024 + 1)
+            .read_to_string(&mut table)
+            .map_err(|e| e.to_string())?;
+        if table.len() > 16 * 1024 * 1024 {
+            return Err("process table exceeded diagnostic limit".into());
+        }
+        parse_group_process_table(&table, group, std::process::id())
+    };
+    inspect()
+        .map_err(|e| format!("[termination-unverified] Cannot inspect process group {group}: {e}"))
+}
 #[cfg(unix)]
-fn group_alive(pid: u32) -> bool {
+fn group_alive(pid: u32) -> Result<bool, String> {
     #[cfg(target_os = "linux")]
     {
         if let Ok(entries) = std::fs::read_dir("/proc") {
-            return entries.flatten().any(|entry| {
+            return Ok(entries.flatten().any(|entry| {
                 let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
                     return false;
                 };
@@ -277,10 +464,25 @@ fn group_alive(pid: u32) -> bool {
                 let f: Vec<_> = fields.split_whitespace().collect();
                 f.get(2).and_then(|x| x.parse::<u32>().ok()) == Some(pid)
                     && !matches!(f.first(), Some(&"Z") | Some(&"X"))
-            });
+            }));
         }
     }
-    unsafe { libc::kill(-(pid as i32), 0) == 0 }
+    #[cfg(target_os = "macos")]
+    return process_table_group_alive(pid);
+    #[cfg(not(target_os = "macos"))]
+    {
+        if unsafe { libc::kill(-(pid as i32), 0) } == 0 {
+            return Ok(true);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            Ok(false)
+        } else {
+            Err(format!(
+                "[termination-unverified] Cannot inspect process group {pid}: {error}"
+            ))
+        }
+    }
 }
 pub fn verify_termination(job: &Job) -> Result<(), String> {
     let target = job.target.lock().unwrap().clone();
@@ -295,6 +497,12 @@ pub fn verify_termination(job: &Job) -> Result<(), String> {
         if let (Some(original), Some(current)) = (start_identity, process_identity(pid)) {
             if original != current {
                 docker_result?;
+                #[cfg(windows)]
+                if docker.is_none() {
+                    return Err(format!(
+                        "[termination-unverified] Launcher PID {pid} was reused; cannot verify termination of its original descendants"
+                    ));
+                }
                 *job.target.lock().unwrap() = None;
                 return Ok(());
             }
@@ -311,7 +519,7 @@ pub fn verify_termination(job: &Job) -> Result<(), String> {
         #[cfg(unix)]
         {
             let start = Instant::now();
-            while group_alive(pid) {
+            while group_alive(pid)? {
                 if start.elapsed() > Duration::from_secs(2) {
                     return Err(format!(
                         "[termination-unverified] Process group {pid} is still alive"
@@ -474,4 +682,104 @@ pub fn emit(job: &Job, sink: &EventSink, kind: &str, payload: Value) {
         r#type: kind.into(),
         payload,
     });
+}
+
+#[cfg(test)]
+mod process_portability_tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn process_table_requires_complete_known_states_for_every_group_member() {
+        let table = "10 10 S\n20 20 Z\n21 20 Z+\n22 22 R\n";
+        assert!(!parse_group_process_table(table, 20, 10).unwrap());
+        assert!(!parse_group_process_table(table, 99, 10).unwrap());
+        assert!(parse_group_process_table(&format!("{table}23 20 S\n"), 20, 10).unwrap());
+        for invalid in [
+            "",
+            "20 20 Z\n",
+            "10 10 S\n20 20 ?\n",
+            "10 10 S\n20 broken Z\n",
+            "10 10 S\n20 20\n",
+        ] {
+            assert!(parse_group_process_table(invalid, 20, 10).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_eperm_requires_positive_evidence_and_other_errors_stay_errors() {
+        assert!(
+            macos_signal_error(20, std::io::Error::from_raw_os_error(libc::EPERM), || Ok(
+                false
+            ))
+            .is_ok()
+        );
+        assert!(
+            macos_signal_error(20, std::io::Error::from_raw_os_error(libc::EPERM), || Ok(
+                true
+            ))
+            .is_err()
+        );
+        assert!(
+            macos_signal_error(20, std::io::Error::from_raw_os_error(libc::EPERM), || Err(
+                "[termination-unverified] scan failed".into()
+            ))
+            .unwrap_err()
+            .contains("scan failed")
+        );
+        assert!(macos_signal_error(
+            20,
+            std::io::Error::from_raw_os_error(libc::EINVAL),
+            || panic!("must not excuse another signal error")
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn actual_process_table_distinguishes_live_and_terminated_groups() {
+        let mut command = Command::new("sleep");
+        command.arg("60");
+        let mut child = grouped_command(command).spawn().unwrap();
+        let pid = child.id();
+        let alive = process_table_group_alive(pid);
+        kill_tree(pid, true).unwrap();
+        child.wait().unwrap();
+        assert!(alive.unwrap());
+        assert!(!process_table_group_alive(pid).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lock_owner_requires_live_ancestry_and_exact_launcher_identity() {
+        let pid = std::process::id();
+        let job = Job::new("ownership".into(), "analyze".into());
+        job.pid.store(pid, Ordering::SeqCst);
+        *job.target.lock().unwrap() = Some(ProcessTarget {
+            pid,
+            docker: None,
+            start_identity: process_identity(pid),
+        });
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping -n 60 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
+        let owned = job_owns_process(&job, child.id());
+        kill_tree(child.id(), true).unwrap();
+        child.wait().unwrap();
+        assert!(owned, "Live child must belong to this exact launcher");
+        assert!(!job_owns_process(&job, child.id()));
+        assert!(!job_owns_process(&job, 0));
+        assert!(!job_owns_process(&job, 4));
+        job.target.lock().unwrap().as_mut().unwrap().start_identity =
+            Some("incorrect birth time".into());
+        assert!(!job_owns_process(&job, pid));
+        let error = verify_termination(&job).unwrap_err();
+        assert!(error.contains("[termination-unverified]") && error.contains("was reused"));
+        assert!(
+            job.target.lock().unwrap().is_some(),
+            "Unverified tree must remain tracked"
+        );
+    }
 }

@@ -1,7 +1,7 @@
 use super::{
     artifacts::{atomic_json, read_json, verify_run},
     engine_plan::{prepare, PathMap},
-    engine_process::{emit, run_process, EventSink, Job, JobRegistry},
+    engine_process::{emit, job_owns_process, run_process, EventSink, Job, JobRegistry},
     engine_types::*,
     runtime,
 };
@@ -46,8 +46,11 @@ fn capture_lock(job: &Job, run: &Path, docker_name: Option<&str>) {
         let ours = if let Some(name) = docker_name {
             owner["context"]["host"] == name
         } else {
-            owner["pid"].as_u64() == Some(job.pid.load(Ordering::SeqCst) as u64)
-                && owner["context"] == local_lock_context()
+            same_local_lock_context(&owner["context"])
+                && owner["pid"]
+                    .as_u64()
+                    .and_then(|pid| u32::try_from(pid).ok())
+                    .is_some_and(|pid| job_owns_process(job, pid))
         };
         if ours {
             let mut locks = job.locks.lock().unwrap();
@@ -57,6 +60,44 @@ fn capture_lock(job: &Job, run: &Path, docker_name: Option<&str>) {
             {
                 locks.push((path, owner));
             }
+        }
+    }
+}
+fn same_local_lock_context(context: &Value) -> bool {
+    let local = local_lock_context();
+    #[cfg(not(windows))]
+    return context == &local;
+    #[cfg(windows)]
+    {
+        let same_host = match (context["host"].as_str(), local["host"].as_str()) {
+            (Some(owner), Some(host)) => {
+                !host.eq_ignore_ascii_case("unknown") && owner.eq_ignore_ascii_case(host)
+            }
+            _ => false,
+        };
+        same_host
+            && context["boot"] == local["boot"]
+            && context["pid_namespace"] == local["pid_namespace"]
+    }
+}
+#[cfg(test)]
+mod lock_context_tests {
+    use super::*;
+
+    #[test]
+    fn local_lock_context_never_accepts_another_host_boot_or_namespace() {
+        let local = local_lock_context();
+        assert!(same_local_lock_context(&local));
+        for key in ["host", "boot", "pid_namespace"] {
+            let mut foreign = local.clone();
+            foreign[key] = json!("foreign-context");
+            assert!(!same_local_lock_context(&foreign));
+        }
+        #[cfg(windows)]
+        {
+            let mut different_case = local.clone();
+            different_case["host"] = json!(local["host"].as_str().unwrap().to_ascii_lowercase());
+            assert!(same_local_lock_context(&different_case));
         }
     }
 }

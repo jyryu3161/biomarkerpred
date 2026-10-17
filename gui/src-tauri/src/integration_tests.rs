@@ -188,7 +188,14 @@ fn windows_mapping_and_docker_mount_csv_are_reversible() {
         .next()
         .unwrap()
         .unwrap();
-    assert_eq!(record[1], format!("source={}", dir.path().display()));
+    // Docker receives canonical paths (macOS /var is a /private/var symlink).
+    // Canonicalize both sides so Windows' extended path prefix is also handled.
+    assert_eq!(
+        Path::new(record[1].strip_prefix("source=").unwrap())
+            .canonicalize()
+            .unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
     assert_eq!(&record[3], "readonly");
 }
 #[cfg(unix)]
@@ -446,7 +453,14 @@ fn real_cli_doctor_qc_analyze_and_model_roundtrip() {
     .unwrap();
     assert!(cancelled.cancelled, "{cancelled:?}");
     assert_eq!(before, sha256(&run.join("manifest.json")).unwrap());
-    assert!(!run.join(".mutation.lock").exists());
+    assert!(
+        !run.join(".mutation.lock").exists(),
+        "Source lock remains: launcher PID={}, captured locks={:?}, owner={:?}, COMPUTERNAME={:?}",
+        cancel_job.pid.load(Ordering::SeqCst),
+        cancel_job.locks.lock().unwrap(),
+        read_json(&run.join(".mutation.lock/owner.json")),
+        std::env::var("COMPUTERNAME")
+    );
     for derivative in cancel_job.run_dirs.lock().unwrap().iter() {
         assert_eq!(
             read_json(&derivative.join("manifest.json")).unwrap()["status"],
@@ -513,9 +527,10 @@ fn fake_docker(dir: &Path) -> PathBuf {
 #[test]
 fn docker_plan_default_output_separate_mounts_and_second_invocation_resume() {
     let temp = tempfile::tempdir().unwrap();
-    let input = temp.path().join("input, with spaces");
-    let evidence = temp.path().join("evidence with spaces");
-    let work = temp.path().join("workspace");
+    let canonical_temp = temp.path().canonicalize().unwrap();
+    let input = canonical_temp.join("input, with spaces");
+    let evidence = canonical_temp.join("evidence with spaces");
+    let work = canonical_temp.join("workspace");
     for dir in [&input, &evidence, &work] {
         std::fs::create_dir_all(dir).unwrap();
     }
@@ -571,13 +586,13 @@ fn docker_plan_default_output_separate_mounts_and_second_invocation_resume() {
     atomic_json(&run.join("config.json"), &saved).unwrap();
     let mut map = plan.map.clone();
     map.mounts
-        .retain(|m| !Path::new(&m.host).starts_with(plan._temp.path()));
+        .retain(|m| !Path::new(&m.host).starts_with(plan._temp.path().canonicalize().unwrap()));
     atomic_json(
         &run.join(".desktop-runtime.json"),
         &json!({"path_map":map,"image_id":plan.image_id}),
     )
     .unwrap();
-    let transient = plan._temp.path().to_path_buf();
+    let transient = plan._temp.path().canonicalize().unwrap();
     drop(plan);
     assert!(!transient.exists());
     let mut resume = request(Operation::Resume);

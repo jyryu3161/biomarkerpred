@@ -142,7 +142,10 @@ jobs:
       - name: Installed Linux desktop IPC (real R, no mocks)
         if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run -a python scripts/ci_installed_desktop.py --bundles "${{ matrix.bundles }}" --rscript "$BMP_TEST_RSCRIPT" --output "${{ runner.temp }}/installed-desktop"
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+        run: dbus-run-session -- xvfb-run -a python scripts/ci_installed_desktop.py --bundles "${{ matrix.bundles }}" --rscript "$BMP_TEST_RSCRIPT" --output "${{ runner.temp }}/installed-desktop"
       - name: Installed Windows MSI and NSIS IPC / macOS installed engine and launch
         if: runner.os != 'Linux'
         shell: bash
