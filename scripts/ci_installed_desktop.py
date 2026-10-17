@@ -220,7 +220,7 @@ def main():
     bundles = args.bundles.resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    progress(output, 'installed_desktop', 'starting', output=str(output), cwd=str(Path.cwd()), bundles=str(bundles))
+    progress(output, 'installed_desktop', 'starting', output_directory=str(output), cwd=str(Path.cwd()), bundles=str(bundles))
     results = []
     if os.name == 'nt':
         msi = next(bundles.rglob('*.msi'))
