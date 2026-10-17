@@ -1,21 +1,73 @@
 [workspace]
 name = "biomarkerpred"
-version = "0.5.1"
-description = "Shared BioMarkerPred research engine (validated Linux x86_64 runtime)"
-channels = ["conda-forge"]
-platforms = ["linux-64"]
+version = "0.4.3"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+description = "BioMarkerPred - Biomarker Prediction Platform"
 
 [dependencies]
-r-base = "==4.4.3"
-r-yaml = "==2.3.12"
-r-jsonlite = "==1.9.1"
-r-digest = "==0.6.39"
-r-survival = "==3.8_12"
-r-glmnet = "==4.1_10"
-r-proc = "==1.18.5"
+# R dependencies available on conda-forge
+r-base = "4.3.*"
+r-yaml = "*"
+r-ggplot2 = "*"
+r-caret = "*"
+r-rocr = "*"
+r-proc = "*"
+# Note: r-cutpointr and r-coefplot are not available on conda-forge
+# These will be installed via CRAN using the install-r-packages task
+r-png = "*"
+r-magrittr = "*"
+
+# System libraries needed for R package compilation
+xz = "*"
+c-compiler = ">=1.11.0,<2"
+cxx-compiler = ">=1.11.0,<2"
+fortran-compiler = ">=1.10.0,<2"
+r-mvtnorm = ">=1.3_3,<2"
+r-desolve = ">=1.40,<2"
+r-locfit = ">=1.5_9.12,<2"
+r-kernlab = ">=0.9_33,<0.10"
+r-mclust = ">=6.1.1,<7"
+
+# System libraries for svglite/textshaping/systemfonts
+pkg-config = "*"
+fontconfig = "*"
+freetype = "*"
+harfbuzz = "*"
+fribidi = "*"
+r-systemfonts = "*"
+r-textshaping = "*"
+r-svglite = "*"
+
+# Survival analysis dependencies
+r-survival = "*"
+r-lme4 = "*"
+
+# Additional CRAN packages for ORA/PPI analysis
+r-httr = "*"
+r-jsonlite = "*"
+r-igraph = "*"
+r-dplyr = "*"
+r-readr = "*"
+r-stringr = "*"
+r-tibble = "*"
+r-tidyr = "*"
+r-ggrepel = "*"
+r-tidygraph = "*"
+r-ggraph = "*"
+cairo = ">=1.18.4,<2"
+expat = ">=2.7.4,<3"
 
 [tasks]
-cli = "Rscript BiomarkerCLI.R"
-doctor = "Rscript BiomarkerCLI.R doctor --json"
-binary = "Rscript BiomarkerCLI.R binary"
-survival = "Rscript BiomarkerCLI.R survival"
+# Project setup
+setup-hooks = "git config core.hooksPath .githooks && echo 'Git hooks enabled (.githooks/)'"
+
+# R package installation
+install-r-packages = "R -q -e \"install.packages(c('ROCR','pROC','cutpointr','coefplot','caret','nsROC','yaml','ggplot2','pheatmap','svglite','tiff','reshape2','gridExtra','survminer'), repos='https://cloud.r-project.org')\""
+install-bioconductor = "R -q -e \"if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org'); BiocManager::install(c('clusterProfiler','org.Hs.eg.db','enrichplot','ReactomePA'), ask=FALSE, update=FALSE)\""
+
+# R analysis workflow
+# Note: config file should be specified via --config argument
+binary = "Rscript Main_Binary.R"
+survival = "Rscript Main_Survival.R"

@@ -1,3 +1,0 @@
-# Stable source bytes and rustfmt behavior on every runner and source checkout.
-* text=auto eol=lf
-*.bat text eol=crlf

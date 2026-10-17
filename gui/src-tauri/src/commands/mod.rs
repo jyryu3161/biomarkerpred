@@ -1,13 +1,18 @@
-pub mod artifacts;
+pub mod analysis;
 pub mod config;
-pub mod engine;
-pub mod engine_plan;
-pub mod engine_process;
-pub mod engine_types;
 pub mod fs_ops;
 pub mod model;
 pub mod opentargets;
+pub mod ora;
 pub mod runtime;
+pub mod setup;
+
+// Every Docker operation must use the engine matching this application version.
+pub(crate) const DOCKER_IMAGE: &str = concat!("jyryu3161/biomarkerpred:v", env!("CARGO_PKG_VERSION"));
+pub(crate) const DOCKER_IMAGE_TAG_URL: &str = concat!(
+    "https://hub.docker.com/v2/repositories/jyryu3161/biomarkerpred/tags/v",
+    env!("CARGO_PKG_VERSION")
+);
 
 /// Suppress the console window that flashes on Windows when spawning child processes.
 /// No-op on non-Windows platforms.
@@ -43,7 +48,10 @@ pub(crate) fn find_docker() -> String {
             "/opt/homebrew/bin/docker",
         ]
     } else if cfg!(target_os = "linux") {
-        vec!["/usr/local/bin/docker", "/usr/bin/docker"]
+        vec![
+            "/usr/local/bin/docker",
+            "/usr/bin/docker",
+        ]
     } else {
         // Windows: rely on find_executable (which uses `where`)
         vec![]

@@ -1,142 +1,308 @@
-import { useEffect, useState } from "react";
-import {
-  Activity,
-  Database,
-  FlaskConical,
-  Network,
-  Settings,
-  ShieldCheck,
-} from "lucide-react";
-import { errorText } from "@/lib/value";
-import type { Page } from "@/lib/types";
-import {
-  initializeWorkspace,
-  navigate,
-  useWorkspace,
-} from "@/stores/workspace";
-import { recoverJob, useJob } from "@/stores/job";
-import { usePrediction } from "@/stores/prediction";
-import { Notice } from "@/components/Common";
-import { JobPanel } from "@/components/JobPanel";
+import { useState, useEffect, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { Sidebar, type Page } from "@/components/layout/Sidebar";
 import { SetupPage } from "@/pages/SetupPage";
 import { ResultsPage } from "@/pages/ResultsPage";
-import { PredictionPage } from "@/pages/PredictionPage";
-import { PathwayPage } from "@/pages/PathwayPage";
+import { PathwayAnalysisPage } from "@/pages/PathwayAnalysisPage";
 import { SettingsPage } from "@/pages/SettingsPage";
-const pages = [
-  { id: "setup", name: "Analysis setup", icon: FlaskConical },
-  { id: "results", name: "Results & history", icon: Database },
-  { id: "prediction", name: "Prediction & evaluation", icon: Activity },
-  { id: "pathway", name: "Pathways & evidence", icon: Network },
-  { id: "settings", name: "Settings", icon: Settings },
-] as const;
+import { PredictionPage } from "@/pages/PredictionPage";
+import { EnvironmentSetup } from "@/components/environment/EnvironmentSetup";
+import { useAnalysisStore } from "@/stores/analysisStore";
+import { useOraStore } from "@/stores/oraStore";
+import { usePredictionStore } from "@/stores/predictionStore";
+import { useConfigStore } from "@/stores/configStore";
+import { checkImageUpdate, pullDockerImage, readPredictionResults } from "@/lib/tauri/commands";
+
+import { refreshEnvironment } from "@/lib/environment";
+
+type UpdateState = "idle" | "checking" | "available" | "updating" | "done" | "dismissed";
+
 function App() {
-  const { page, doctor, checkingRuntime, initialized, settings, initError } =
-    useWorkspace();
-  const job = useJob();
-  const [jobError, setJobError] = useState("");
+  const [currentPage, setCurrentPage] = useState<Page>("setup");
+  const status = useAnalysisStore((s) => s.status);
+  const envStatus = useConfigStore((s) => s.envStatus);
+  const setupStatus = useConfigStore((s) => s.setupStatus);
+
+  const hasResults =
+    status === "completed" || status === "running" || status === "failed";
+
+  // Determine if environment is ready (Docker-only)
+  const envReady = envStatus
+    ? envStatus.dockerAvailable && envStatus.dockerImagePresent
+    : false;
+
+  // Show main UI after setup completes (with brief delay for UX)
+  const [showMain, setShowMain] = useState(false);
   useEffect(() => {
-    void initializeWorkspace();
-    void recoverJob().catch((error) => setJobError(errorText(error)));
-  }, []);
+    if (envReady) {
+      const timer = setTimeout(() => setShowMain(true), setupStatus === "completed" ? 1000 : 0);
+      return () => clearTimeout(timer);
+    } else {
+      setShowMain(false);
+    }
+  }, [envReady, setupStatus]);
+
+  // Image update check state
+  const [updateState, setUpdateState] = useState<UpdateState>("idle");
+  const [updateLogs, setUpdateLogs] = useState<string[]>([]);
+  const updateChecked = useRef(false);
+
+  // Check for image update once after main UI becomes visible
   useEffect(() => {
-    if (
-      job.phase === "finished" &&
-      job.response &&
-      (job.operation === "predict" || job.operation === "evaluate")
-    )
-      usePrediction.setState({ result: job.response });
-  }, [job.phase, job.response, job.operation]);
+    if (!showMain || updateChecked.current) return;
+    updateChecked.current = true;
+    setUpdateState("checking");
+    checkImageUpdate()
+      .then(({ hasUpdate }) => {
+        setUpdateState(hasUpdate ? "available" : "idle");
+      })
+      .catch(() => setUpdateState("idle")); // never block startup
+  }, [showMain]);
+
+  const handleImageUpdate = async () => {
+    setUpdateLogs([]);
+    setUpdateState("updating");
+    const unlisten = await listen<string>("setup://log", (e) => {
+      setUpdateLogs((prev) => [...prev, e.payload]);
+    });
+    const unlistenDone = await listen<{ success: boolean }>("setup://complete", (e) => {
+      unlisten();
+      unlistenDone();
+      setUpdateState(e.payload.success ? "done" : "available");
+    });
+    try {
+      await pullDockerImage();
+    } catch {
+      unlisten();
+      unlistenDone();
+      setUpdateState("available");
+    }
+  };
+
+  // Warn before closing if analysis is running
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (useJob.getState().busy) event.preventDefault();
+    const handler = (e: BeforeUnloadEvent) => {
+      if (useAnalysisStore.getState().status === "running") {
+        e.preventDefault();
+      }
     };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
   }, []);
+
+  // Check environment on startup
+  useEffect(() => {
+    void refreshEnvironment();
+  }, []);
+
+  // Listen for analysis events from Rust backend
+  useEffect(() => {
+    const unlisten: (() => void)[] = [];
+
+    listen<{ success: boolean; code: number | null }>(
+      "analysis://complete",
+      (event) => {
+        const { success, code } = event.payload;
+        const store = useAnalysisStore.getState();
+        if (store.status === "cancelled") {
+          store.appendLog(`Analysis cancelled by user (exit code ${code})`);
+          return;
+        }
+        store.appendLog(
+          success
+            ? `Analysis completed successfully (exit code ${code})`
+            : `Analysis finished with exit code ${code}`,
+        );
+        if (!success) {
+          store.setParam("errorMessage", `Exit code ${code}. Check Results > Log for details.`);
+        }
+        store.setStatus(success ? "completed" : "failed");
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ message: string }>("analysis://error", (event) => {
+      const store = useAnalysisStore.getState();
+      if (store.status === "cancelled") return;
+      store.appendLog(`Error: ${event.payload.message}`);
+      store.setParam("errorMessage", event.payload.message);
+      store.setStatus("failed");
+    }).then((u) => unlisten.push(u));
+
+    listen<string>("analysis://log", (event) => {
+      useAnalysisStore.getState().appendLog(event.payload);
+    }).then((u) => unlisten.push(u));
+
+    listen<{ type: string; current: number; total: number; message: string }>(
+      "analysis://progress",
+      (event) => {
+        const { type, current, total, message } = event.payload;
+        const store = useAnalysisStore.getState();
+        const prev = store.progress;
+        if (type === "total") {
+          store.setProgress(0, total, message);
+        } else if (type === "iteration_complete") {
+          store.setProgress(current, prev.total || total, message);
+        } else {
+          store.setProgress(current, total || prev.total, message);
+        }
+      },
+    ).then((u) => unlisten.push(u));
+
+    // ORA / Pathway Analysis events
+    listen<string>("ora://log", (event) => {
+      useOraStore.getState().appendLog(event.payload);
+    }).then((u) => unlisten.push(u));
+
+    listen<{ type: string; current: number; total: number; message: string }>(
+      "ora://progress",
+      (event) => {
+        const { current, total, message } = event.payload;
+        useOraStore.getState().setProgress(current, total, message);
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ success: boolean; code: number | null }>(
+      "ora://complete",
+      (event) => {
+        const store = useOraStore.getState();
+        const { success, code } = event.payload;
+        store.appendLog(
+          success
+            ? "Pathway analysis completed successfully"
+            : `Pathway analysis failed (exit code ${code})`,
+        );
+        store.setStatus(success ? "completed" : "failed");
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ message: string }>("ora://error", (event) => {
+      const store = useOraStore.getState();
+      store.appendLog(`Error: ${event.payload.message}`);
+      store.setStatus("failed");
+    }).then((u) => unlisten.push(u));
+
+    // Prediction events
+    listen<string>("prediction://log", (event) => {
+      usePredictionStore.getState().appendLog(event.payload);
+    }).then((u) => unlisten.push(u));
+
+    listen<{ success: boolean; code: number | null }>(
+      "prediction://complete",
+      (event) => {
+        const store = usePredictionStore.getState();
+        const { success, code } = event.payload;
+        store.appendLog(
+          success
+            ? "Prediction completed successfully"
+            : `Prediction failed (exit code ${code})`,
+        );
+        if (success && store.outputDir) {
+          readPredictionResults(store.outputDir)
+            .then((results) => {
+              store.setResults(results);
+              store.setStatus("completed");
+            })
+            .catch(() => {
+              store.setStatus("completed");
+            });
+        } else {
+          store.setStatus(success ? "completed" : "failed");
+        }
+      },
+    ).then((u) => unlisten.push(u));
+
+    listen<{ message: string }>("prediction://error", (event) => {
+      const store = usePredictionStore.getState();
+      store.appendLog(`Error: ${event.payload.message}`);
+      store.setErrorMessage(event.payload.message);
+      store.setStatus("failed");
+    }).then((u) => unlisten.push(u));
+
+    return () => {
+      unlisten.forEach((u) => u());
+    };
+  }, []);
+
+  const oraStatus = useOraStore((s) => s.status);
+  const predictionStatus = usePredictionStore((s) => s.status);
+
+  // Environment gate: show setup screen if env not ready
+  if (!showMain) {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+        <EnvironmentSetup />
+      </div>
+    );
+  }
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <a
-          className="brand"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("setup");
-          }}
-        >
-          <ShieldCheck size={30} />
-          <span>
-            BioMarkerPred<small>Research workspace</small>
-          </span>
-        </a>
-        <nav aria-label="Main navigation">
-          {pages.map(({ id, name, icon: Icon }) => (
-            <button
-              key={id}
-              aria-current={page === id ? "page" : undefined}
-              onClick={() => navigate(id as Page)}
-            >
-              <Icon size={19} />
-              {name}
-            </button>
-          ))}
-        </nav>
-        <div className="runtime-summary">
-          <span className={`runtime-dot ${doctor?.success ? "ready" : ""}`} />
-          {checkingRuntime
-            ? "Checking runtime…"
-            : doctor?.success
-              ? `${settings?.backend === "docker" ? "Docker" : "Local R"} ready`
-              : "Runtime needs attention"}
-          <small>Shared R engine · schema v1</small>
-          <button className="text-button" onClick={() => navigate("settings")}>
-            Runtime settings
-          </button>
-        </div>
-      </aside>
-      <main>
-        <div className="topbar">
-          <span>Reproducible biomarker research</span>
-          <span>{job.busy ? "Operation active" : "Workspace ready"}</span>
-        </div>
-        <div className="workspace">
-          <div className="page-content">
-            {initError && <Notice tone="error">{initError}</Notice>}
-            {jobError && (
-              <Notice tone="warning">
-                Job recovery: {jobError}{" "}
-                <button
-                  onClick={() =>
-                    void recoverJob()
-                      .then(() => setJobError(""))
-                      .catch((error) => setJobError(errorText(error)))
-                  }
-                >
-                  Retry job recovery
-                </button>
-              </Notice>
-            )}
-            {initialized && !doctor?.success && page !== "settings" && (
-              <Notice tone="warning">
-                {checkingRuntime
-                  ? "Checking the selected engine…"
-                  : "The selected runtime is not ready. Configure or inspect it in Settings."}
-                <button onClick={() => navigate("settings")}>
-                  Open settings
-                </button>
-              </Notice>
-            )}
-            {page === "setup" && <SetupPage />}
-            {page === "results" && <ResultsPage />}
-            {page === "prediction" && <PredictionPage />}
-            {page === "pathway" && <PathwayPage />}
-            {page === "settings" && <SettingsPage />}
+    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+      <Sidebar
+        currentPage={currentPage}
+        onPageChange={setCurrentPage}
+        analysisRunning={hasResults}
+        oraRunning={oraStatus === "running"}
+        predictionRunning={predictionStatus === "running"}
+      />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Image update banner */}
+        {updateState === "available" && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2 text-xs bg-amber-500/10 border-b border-amber-500/25 shrink-0">
+            <span className="text-amber-700 dark:text-amber-400">
+              A new version of the analysis image is available.
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={handleImageUpdate}
+                className="px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-700 transition-colors font-medium"
+              >
+                Update Now
+              </button>
+              <button
+                onClick={() => setUpdateState("dismissed")}
+                className="px-2 py-1 rounded text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
-          <JobPanel />
-        </div>
+        )}
+        {updateState === "updating" && (
+          <div className="px-4 py-2 text-xs bg-blue-500/10 border-b border-blue-500/25 shrink-0 space-y-1">
+            <span className="text-blue-700 dark:text-blue-400 font-medium">
+              Updating analysis image...
+            </span>
+            {updateLogs.length > 0 && (
+              <div className="font-mono text-muted-foreground max-h-16 overflow-y-auto">
+                {updateLogs.slice(-4).map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {updateState === "done" && (
+          <div className="flex items-center justify-between px-4 py-2 text-xs bg-green-500/10 border-b border-green-500/25 shrink-0">
+            <span className="text-green-700 dark:text-green-400">
+              Analysis image updated successfully.
+            </span>
+            <button
+              onClick={() => setUpdateState("dismissed")}
+              className="px-2 py-1 rounded text-green-700 dark:text-green-400 hover:bg-green-500/20 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {currentPage === "setup" && <SetupPage />}
+        {currentPage === "results" && <ResultsPage />}
+        {currentPage === "pathway" && <PathwayAnalysisPage />}
+        {currentPage === "prediction" && <PredictionPage />}
+        {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>
   );
 }
+
 export default App;

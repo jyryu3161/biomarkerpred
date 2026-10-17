@@ -1,104 +1,174 @@
 #!/usr/bin/env python3
-"""Attach an explicitly selected immutable disease snapshot to a base config.
-
-The shared R CLI normalizes the original base file before it moves, preserving
-its workdir/config-directory path semantics. This command neither selects a
-disease from a drug name nor interprets association scores as response evidence.
 """
-from __future__ import annotations
+RESPRED - Generate Open Targets evidence-filtered analysis configuration files.
+
+Reads existing config files and creates new configs with an 'evidence'
+section for drug-target gene filtering.
+
+Usage:
+    python3 generate_opentargets_configs.py [--drugs pembrolizumab nivolumab]
+    python3 generate_opentargets_configs.py --score-threshold 0.2
+"""
 
 import argparse
-import csv
-import hashlib
+import glob
 import json
-import math
-from pathlib import Path
-import subprocess
+import os
 import sys
 
-from generate_configs import HelperError, emit_failure, save_validated, validate_config, validate_object
-from fetch_opentargets_genes import MIGRATION, disease_identifier
+import yaml
+
+MAPPING_FILE = "drug_chembl_mapping.json"
+EVIDENCE_DIR = "evidence"
+CONFIG_DIR = "config"
 
 
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def load_mapping(mapping_file):
+    with open(mapping_file, "r") as f:
+        return json.load(f)
 
 
-def read_snapshot(path):
-    path = Path(path).expanduser().resolve(strict=True)
-    directory = path if path.is_dir() else path.parent
-    csv_path = directory / "genes.csv" if path.is_dir() else path
-    metadata_path = directory / "metadata.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    if not isinstance(metadata, dict) or metadata.get("source") != "Open Targets Platform":
-        raise HelperError("Snapshot metadata must identify Open Targets Platform")
-    if not metadata.get("csv_sha256") or digest(csv_path) != metadata["csv_sha256"]:
-        raise HelperError("Snapshot CSV hash differs from its immutable metadata")
-    disease_id = disease_identifier(metadata.get("disease_id", metadata.get("efo_id")))
-    if not isinstance(metadata.get("disease_name"), str) or not metadata["disease_name"].strip():
-        raise HelperError("Snapshot metadata has no disease name")
-    if metadata.get("complete") is False:
-        raise HelperError("A partial evidence snapshot cannot be attached")
-    count = metadata.get("gene_count")
-    if type(count) is not int or count < 0 or metadata.get("query_variables", {}).get("expected_count") != count:
-        raise HelperError("Snapshot lacks a verified full target count")
-    identifiers = set()
-    with csv_path.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream)
-        if not {"gene_symbol", "ensembl_id", "score"}.issubset(reader.fieldnames or []):
-            raise HelperError("Snapshot CSV requires gene_symbol, ensembl_id and score")
-        for row in reader:
-            if not row["ensembl_id"] or not row["gene_symbol"] or row["ensembl_id"] in identifiers:
-                raise HelperError("Snapshot has duplicate or missing target identifiers")
-            identifiers.add(row["ensembl_id"])
-            score = float(row["score"])
-            if not math.isfinite(score) or not 0 <= score <= 1:
-                raise HelperError("Snapshot scores must be finite numbers between 0 and 1")
-    if len(identifiers) != count:
-        raise HelperError("Snapshot CSV count differs from metadata")
-    for page in metadata.get("pages", []):
-        for kind in ("request", "response"):
-            target = (directory / page[f"{kind}_file"]).resolve(strict=True)
-            if not target.is_relative_to(directory) or digest(target) != page[f"{kind}_sha256"]:
-                raise HelperError("Snapshot request/response provenance is missing, outside the snapshot, or changed")
-    return csv_path, metadata_path, disease_id, metadata
+def generate_config(drug_key, base_config_path, mapping_info, score_threshold, evidence_dir):
+    """Generate an opentargets-filtered config from a base config."""
+    with open(base_config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    evidence_file = os.path.join(evidence_dir, f"{drug_key}_opentargets_genes.csv")
+
+    # Check that evidence file exists
+    if not os.path.exists(evidence_file):
+        print(f"  Warning: Evidence file not found: {evidence_file}", file=sys.stderr)
+        return None
+
+    # Add evidence section
+    config["evidence"] = {
+        "gene_file": evidence_file,
+        "score_threshold": score_threshold,
+        "source": "Open Targets Platform",
+        "drug_name": drug_key,
+        "chembl_id": mapping_info["chembl_id"],
+    }
+
+    # Update output directories for binary
+    if "binary" in config:
+        config["binary"]["output_dir"] = f"results/{drug_key}_opentargets/binary"
+
+    return config
 
 
-def main(argv=None):
-    argv = sys.argv[1:] if argv is None else argv
-    if any(value.split("=", 1)[0] in {"--drugs", "--mapping-file", "--evidence-dir", "--config-dir"} for value in argv):
-        return emit_failure(HelperError(MIGRATION + " Use --base-config PATH --snapshot DIRECTORY --output-config PATH --score-threshold NUMBER."))
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-config", type=Path, required=True)
-    parser.add_argument("--snapshot", type=Path, required=True, help="Snapshot directory or its genes.csv (metadata.json is required)")
-    parser.add_argument("--output-config", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, help="Optional separate scientific run root; otherwise retain the base output path")
-    parser.add_argument("--score-threshold", type=float, required=True, help="Prespecified disease association threshold in [0,1]")
-    parser.add_argument("--rscript", help="Rscript executable path; otherwise use BMP_RSCRIPT/project launcher")
-    args = parser.parse_args(argv)
-    try:
-        if not math.isfinite(args.score_threshold) or not 0 <= args.score_threshold <= 1:
-            raise HelperError("score-threshold must be a finite number between 0 and 1")
-        csv_path, metadata_path, disease_id, metadata = read_snapshot(args.snapshot)
-        config = validate_config(args.base_config, args.rscript)["config"]
-        config.pop("source_config", None)
-        config["evidence"] = {"gene_file": str(csv_path), "score_threshold": args.score_threshold,
-            "source": metadata["source"], "disease_id": disease_id, "efo_id": disease_id,
-            "disease_name": metadata["disease_name"], "retrieved_at": metadata.get("fetched_at"),
-            "snapshot_metadata": metadata, "metadata_file": str(metadata_path), "metadata_sha256": digest(metadata_path)}
-        if args.output_dir is not None:
-            config["output_dir"] = str(args.output_dir.expanduser().resolve())
-        value = validate_object(config, args.rscript)
-        # Guard against a concurrently replaced snapshot during normalization/QC.
-        if digest(csv_path) != metadata["csv_sha256"] or digest(metadata_path) != config["evidence"]["metadata_sha256"]:
-            raise HelperError("Evidence snapshot changed during configuration generation")
-        result = save_validated(args.output_config, value)
-        result["disease_id"] = disease_id
-    except (ValueError, OSError, TypeError, KeyError, subprocess.SubprocessError) as error:
-        return emit_failure(error)
-    print(json.dumps(result, ensure_ascii=False))
-    return 0
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate Open Targets evidence-filtered analysis configs"
+    )
+    parser.add_argument(
+        "--score-threshold",
+        type=float,
+        default=0.1,
+        help="Score threshold for evidence filtering (default: 0.1)",
+    )
+    parser.add_argument(
+        "--drugs",
+        nargs="*",
+        default=None,
+        help="Specific drug names (e.g., pembrolizumab nivolumab). Default: all.",
+    )
+    parser.add_argument(
+        "--mapping-file",
+        default=MAPPING_FILE,
+        help=f"Path to drug-ChEMBL mapping JSON (default: {MAPPING_FILE})",
+    )
+    parser.add_argument(
+        "--evidence-dir",
+        default=EVIDENCE_DIR,
+        help=f"Directory containing evidence CSV files (default: {EVIDENCE_DIR})",
+    )
+    parser.add_argument(
+        "--config-dir",
+        default=CONFIG_DIR,
+        help=f"Directory for config files (default: {CONFIG_DIR})",
+    )
+    parser.add_argument(
+        "--base-config",
+        default=None,
+        help="Base config file to use for all drugs (default: auto-detect)",
+    )
+    args = parser.parse_args()
+
+    # Load mapping
+    if not os.path.exists(args.mapping_file):
+        print(f"Error: Mapping file not found: {args.mapping_file}", file=sys.stderr)
+        sys.exit(1)
+
+    mapping = load_mapping(args.mapping_file)
+
+    # Select drugs
+    if args.drugs:
+        datasets = {k: v for k, v in mapping.items() if k in args.drugs}
+        missing = set(args.drugs) - set(datasets.keys())
+        if missing:
+            print(f"Warning: Unknown drugs: {missing}", file=sys.stderr)
+    else:
+        datasets = mapping
+
+    if not datasets:
+        print("No drugs to process.", file=sys.stderr)
+        sys.exit(1)
+
+    total = len(datasets)
+    created = 0
+    skipped = 0
+
+    print(f"Generating opentargets configs for {total} drugs")
+    print("=" * 60)
+
+    for drug_key, info in sorted(datasets.items()):
+        # Use specified base config or look for drug-specific one
+        if args.base_config:
+            base_config = args.base_config
+        else:
+            base_config = os.path.join(args.config_dir, "example_analysis.yaml")
+
+        output_config = os.path.join(args.config_dir, f"{drug_key}_opentargets_analysis.yaml")
+
+        if not os.path.exists(base_config):
+            print(f"  Skipping {drug_key}: base config not found ({base_config})")
+            skipped += 1
+            continue
+
+        config = generate_config(
+            drug_key, base_config, info, args.score_threshold, args.evidence_dir
+        )
+        if config is None:
+            skipped += 1
+            continue
+
+        with open(output_config, "w") as f:
+            f.write(f"# RESPRED Open Targets evidence-filtered configuration for {drug_key}\n")
+            f.write(f"# Drug: {drug_key} ({info['chembl_id']})\n")
+            f.write(f"# Generated from: {os.path.basename(base_config)}\n")
+
+            class QuotedDumper(yaml.SafeDumper):
+                pass
+
+            def str_representer(dumper, data):
+                if data in (".", "~", "null", "true", "false", "yes", "no",
+                            "on", "off", "none"):
+                    return dumper.represent_scalar(
+                        "tag:yaml.org,2002:str", data, style='"'
+                    )
+                return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+            QuotedDumper.add_representer(str, str_representer)
+
+            yaml.dump(config, f, Dumper=QuotedDumper,
+                      default_flow_style=False, sort_keys=False)
+
+        print(f"  Created: {output_config}")
+        created += 1
+
+    print("\n" + "=" * 60)
+    print(f"Done: {created} configs created, {skipped} skipped")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

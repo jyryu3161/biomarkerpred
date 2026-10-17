@@ -1,249 +1,102 @@
-import { useState } from "react";
-import { api } from "@/lib/api";
-import { errorText, object, text } from "@/lib/value";
-import type { DockerStatus, RuntimeSettings } from "@/lib/types";
-import {
-  checkRuntime,
-  downloadImage,
-  saveSettings,
-  useWorkspace,
-} from "@/stores/workspace";
-import { useJob } from "@/stores/job";
-import {
-  Facts,
-  Field,
-  JsonDetails,
-  Notice,
-  PathField,
-  Section,
-} from "@/components/Common";
-function SettingsForm({ saved }: { saved: RuntimeSettings }) {
-  const [draft, setDraft] = useState(saved);
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const busy = useJob((s) => s.busy);
-  const downloading = useWorkspace((s) => s.downloadingImage);
-  const checking = useWorkspace((s) => s.checkingRuntime);
-  const disabled = working || busy || downloading || checking;
-  const act = async (fn: () => Promise<unknown>, message: string) => {
-    setWorking(true);
-    setError("");
-    setMessage("");
+import { useState, useEffect } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { useConfigStore } from "@/stores/configStore";
+import { pullDockerImage } from "@/lib/tauri/commands";
+
+import { dockerMessages, refreshEnvironment } from "@/lib/environment";
+
+export function SettingsPage() {
+  const envStatus = useConfigStore((s) => s.envStatus);
+  const envChecking = useConfigStore((s) => s.envChecking);
+  const envCheckError = useConfigStore((s) => s.envCheckError);
+  const messages = envStatus ? dockerMessages[envStatus.dockerStatus] : null;
+  const [version, setVersion] = useState<string>("");
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion(""));
+  }, []);
+
+  const [dockerPulling, setDockerPulling] = useState(false);
+
+  const handlePullDocker = async () => {
+    setDockerPulling(true);
     try {
-      await fn();
-      setMessage(message);
+      await pullDockerImage();
+      await refreshEnvironment();
     } catch (e) {
-      setError(errorText(e));
+      console.error("Docker pull failed:", e);
     } finally {
-      setWorking(false);
+      setDockerPulling(false);
     }
   };
+
   return (
-    <Section title="Execution settings">
-      <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0 }}>
-        <div className="form-grid">
-          <Field label="Runtime backend">
-            <select
-              value={draft.backend}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  backend: e.target.value as RuntimeSettings["backend"],
-                })
-              }
-            >
-              <option value="local">Local R</option>
-              <option value="docker">Docker engine</option>
-            </select>
-          </Field>
-          {draft.backend === "local" ? (
-            <PathField
-              label="Rscript executable"
-              value={draft.rPath ?? ""}
-              onChange={(rPath) => setDraft({ ...draft, rPath: rPath || null })}
-              hint="Leave empty for the configured environment / PATH. Local execution does not require Docker."
-            />
-          ) : (
-            <>
-              <PathField
-                label="Docker executable"
-                value={draft.dockerPath ?? ""}
-                onChange={(dockerPath) =>
-                  setDraft({ ...draft, dockerPath: dockerPath || null })
-                }
-                hint="Leave empty to find Docker on PATH."
-              />
-              <Field label="Docker image">
-                <input
-                  value={draft.dockerImage}
-                  onChange={(e) =>
-                    setDraft({ ...draft, dockerImage: e.target.value })
-                  }
-                />
-              </Field>
-            </>
-          )}
-        </div>
-        <PathField
-          label="Default output / history root"
-          value={draft.outputRoot ?? ""}
-          onChange={(outputRoot) =>
-            setDraft({ ...draft, outputRoot: outputRoot || null })
-          }
-          directory
-          hint="Stored on this computer. Analyses create unique child run directories."
-        />
-      </fieldset>
-      {draft.backend === "docker" && (
-        <p>
-          Install Docker Desktop if needed. <button
-            disabled={disabled}
-            onClick={() => void act(api.openDockerDownload, "Opening the official Docker Desktop download page in your browser.")}
-          >Open Docker Desktop download page</button>{" "}
-          Start Docker Desktop and wait for its Linux engine to be running, then
-          download the analysis image below. If it is already running, check the
-          selected executable, Docker context and permissions. Checking runtime
-          never installs an image or starts Docker.
-        </p>
-      )}
-      <div className="row">
-        <button
-          className="primary"
-          disabled={disabled}
-          onClick={() =>
-            void act(
-              () => saveSettings(draft),
-              "Settings saved; runtime diagnostics refreshed.",
-            )
-          }
-        >
-          Save settings and check
-        </button>
-        {draft.backend === "docker" && (
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <h2 className="text-lg font-semibold">Settings</h2>
+
+      {/* Docker Status */}
+      <section className="border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Docker</h3>
           <button
-            disabled={disabled || !draft.dockerImage.trim()}
-            onClick={() =>
-              void act(
-                () => downloadImage(draft),
-                "Analysis image downloaded; settings saved and the actual engine passed doctor.",
-              )
-            }
+            onClick={refreshEnvironment}
+            disabled={envChecking}
+            className="px-3 py-1.5 text-xs bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors"
           >
-            {downloading ? "Downloading analysis image…" : "Download analysis image"}
+            {envChecking ? "Checking..." : "Refresh Status"}
+          </button>
+        </div>
+
+        {envStatus && messages && (
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Docker:</span>
+              <span className={envStatus.dockerAvailable ? "text-green-600 text-xs" : "text-destructive text-xs"}>
+                {messages.engine}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Analysis Image:</span>
+              <span className={envStatus.dockerImagePresent ? "text-green-600 text-xs" : "text-muted-foreground text-xs"}>
+                {messages.image}
+              </span>
+            </div>
+            {messages.help && <p className="text-xs text-muted-foreground">{messages.help}</p>}
+            {envStatus.dockerError && (
+              <pre className="text-xs text-destructive whitespace-pre-wrap break-all">{envStatus.dockerError}</pre>
+            )}
+          </div>
+        )}
+        {envCheckError && <p className="text-xs text-destructive">Environment check failed: {envCheckError}</p>}
+
+        {envStatus?.dockerStatus === "image_missing" && (
+          <button
+            onClick={handlePullDocker}
+            disabled={dockerPulling || envChecking}
+            className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {dockerPulling ? "Downloading..." : "Download Analysis Image"}
           </button>
         )}
-      </div>
-      {(working || downloading || checking) && (
-        <p role="status">
-          {downloading
-            ? "Downloading the analysis image. This may take several minutes (up to 30 minutes); runtime verification follows automatically."
-            : "Checking runtime…"}
-        </p>
-      )}
-      {error && <Notice tone="error">{error}</Notice>}
-      {message && <Notice tone="info">{message}</Notice>}
-    </Section>
-  );
-}
-function dockerFacts(status: DockerStatus | null) {
-  const engine = {
-    cli_missing: "Docker CLI not found",
-    engine_unreachable: "Cannot connect",
-    wrong_container_mode: "Windows containers (Linux required)",
-    image_missing: "Running (Linux containers)",
-    image_check_failed: "Running (Linux containers)",
-    ready: "Running (Linux containers)",
-  };
-  const image = {
-    cli_missing: "Not checked (Docker Engine required)",
-    engine_unreachable: "Not checked (Docker Engine required)",
-    wrong_container_mode: "Not checked (Docker Engine required)",
-    image_missing: "Not downloaded",
-    image_check_failed: "Inspection failed",
-    ready: `Available: ${status?.image}`,
-  };
-  return {
-    "Docker Engine": status ? engine[status.state] : "Not checked",
-    "Analysis Image": status ? image[status.state] : "Not checked",
-  };
-}
-export function SettingsPage() {
-  const {
-    settings, doctor, dockerStatus, downloadingImage,
-    checkingRuntime, runtimeError, initError,
-  } = useWorkspace();
-  const result = object(doctor?.result);
-  return (
-    <div className="stack">
-      <header>
-        <p className="eyebrow">RUNTIME</p>
-        <h1>Settings</h1>
-        <p>
-          The desktop and CLI execute the same installed R engine and
-          configuration schema.
-        </p>
-      </header>
-      {initError && <Notice tone="error">{initError}</Notice>}
-      {settings ? (
-        <SettingsForm saved={settings} />
-      ) : (
-        <Notice tone="error">
-          Desktop settings could not be loaded. Launch this interface inside the
-          desktop application.
-        </Notice>
-      )}
-      <Section title="Runtime diagnostics">
-        <button
-          disabled={checkingRuntime || downloadingImage || !settings}
-          onClick={() => void checkRuntime()}
-        >
-          {checkingRuntime ? "Checking runtime…" : "Check runtime"}
-        </button>
-        {settings?.backend === "docker" && (
-          <>
-            <Facts value={dockerFacts(dockerStatus)} />
-            {dockerStatus && (
-              <JsonDetails value={dockerStatus.diagnostics} title="Docker command diagnostics" />
-            )}
-          </>
+
+        {envStatus?.dockerAvailable && envStatus.dockerImagePresent && (
+          <button
+            onClick={handlePullDocker}
+            disabled={dockerPulling || envChecking}
+            className="px-3 py-1.5 text-xs bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 transition-colors disabled:opacity-50"
+          >
+            {dockerPulling ? "Updating..." : "Update Image"}
+          </button>
         )}
-        {runtimeError && <Notice tone="error">{runtimeError}</Notice>}
-        {doctor && (
-          <>
-            <Notice tone={doctor.success ? "success" : "error"}>
-              {doctor.success
-                ? `Ready: ${settings?.backend} engine passed doctor.`
-                : "Runtime is not ready."}
-            </Notice>
-            <Facts
-              value={Object.fromEntries(
-                [
-                  "application",
-                  "engine_version",
-                  "interface_version",
-                  "config_version",
-                  "model_version",
-                  "r_version",
-                  "platform",
-                  "engine_root",
-                ].map((key) => [key, result[key]]),
-              )}
-            />
-            <h3>Required packages and graphics</h3>
-            <Facts value={result.packages} />
-            <Facts value={result.graphics} />
-            <h3>Optional pathway capabilities</h3>
-            <Facts value={result.pathway_capabilities} />
-            <JsonDetails value={doctor} title="Complete doctor response" />
-          </>
-        )}
-        <p className="muted">
-          Readiness requires the actual versioned CLI, core packages and
-          Cairo/PNG/TIFF graphics. Optional annotation packages are diagnosed
-          separately. {text(object(result.pathway_capabilities).note, "")}
-        </p>
-      </Section>
+      </section>
+
+      <section className="border border-border rounded-lg p-4 space-y-3">
+        <h3 className="text-sm font-medium">About</h3>
+        <div className="text-sm text-muted-foreground space-y-1">
+          <p>BioMarkerPred{version ? ` v${version}` : ""}</p>
+          <p>Biomarker Prediction Platform</p>
+          <p>Cross-platform desktop application powered by Tauri + Docker</p>
+        </div>
+      </section>
     </div>
   );
 }

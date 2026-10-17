@@ -17,3 +17,45 @@ pub struct TcgaPreset {
     pub config_path: String,
     pub has_evidence: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeInfo {
+    pub r_path: Option<String>,
+    pub pixi_path: Option<String>,
+    pub r_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageUpdateStatus {
+    pub has_update: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DockerStatus {
+    CliMissing,
+    EngineUnreachable,
+    WindowsContainers,
+    EngineCheckFailed,
+    ImageMissing,
+    ImageInspectFailed,
+    Ready,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvStatus {
+    pub pixi_installed: bool,
+    pub r_available: bool,
+    pub packages_ok: bool,
+    pub docker_available: bool,
+    pub docker_image_present: bool,
+    pub docker_status: DockerStatus,
+    pub docker_error: Option<String>,
+    pub pixi_path: Option<String>,
+    pub r_path: Option<String>,
+    pub r_version: Option<String>,
+}

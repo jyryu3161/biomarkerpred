@@ -1,242 +1,458 @@
-import { useState } from "react";
-import { api } from "@/lib/api";
-import { errorText, number, object, responseError, text } from "@/lib/value";
-import { usePrediction } from "@/stores/prediction";
-import { startJob, useJob } from "@/stores/job";
-import { openRun, useWorkspace } from "@/stores/workspace";
+import { useState, useEffect, useRef } from "react";
+import { usePredictionStore } from "@/stores/predictionStore";
+import { useConfigStore } from "@/stores/configStore";
 import {
-  Field,
-  FileActions,
-  Notice,
-  PathField,
-  Section,
-} from "@/components/Common";
-import { ModelDetails, SavedCsv } from "@/components/Artifacts";
-import { QcView } from "@/components/QcView";
-export function PredictionPage() {
-  const state = usePrediction();
-  const { settings, doctor } = useWorkspace();
-  const busy = useJob((s) => s.busy);
-  const [error, setError] = useState("");
+  pickFile,
+  readCsvHeader,
+  loadModel,
+  runPrediction,
+  cancelPrediction,
+  saveFile,
+} from "@/lib/tauri/commands";
+import { formatAuc } from "@/lib/auc";
+import type { ColumnValidation } from "@/types/prediction";
+
+function ModelSection() {
+  const modelPath = usePredictionStore((s) => s.modelPath);
+  const modelInfo = usePredictionStore((s) => s.modelInfo);
+  const setModelPath = usePredictionStore((s) => s.setModelPath);
+  const setModelInfo = usePredictionStore((s) => s.setModelInfo);
+  const setErrorMessage = usePredictionStore((s) => s.setErrorMessage);
   const [loading, setLoading] = useState(false);
-  const patch = usePrediction.setState;
-  const model = state.model?.model;
-  const survival = model?.analysis_type === "survival";
-  const load = async () => {
+
+  const handlePickModel = async () => {
+    const path = await pickFile();
+    if (!path) return;
+
     setLoading(true);
-    setError("");
-    const path = state.modelPath;
+    setErrorMessage("");
     try {
-      const loaded = await api.model(path);
-      if (usePrediction.getState().modelPath === path)
-        patch({ model: loaded, timeUnit: text(loaded.model.time_unit, "") });
+      const info = await loadModel(path);
+      setModelPath(path);
+      setModelInfo(info);
     } catch (e) {
-      setError(errorText(e));
+      setErrorMessage(`Failed to load model: ${e}`);
+      setModelInfo(null);
     } finally {
       setLoading(false);
     }
   };
-  const start = async () => {
-    setError("");
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <h3 className="text-sm font-medium mb-3">Step 1: Load Model</h3>
+      <button
+        onClick={handlePickModel}
+        disabled={loading}
+        className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+      >
+        {loading ? "Loading..." : "Select Model File (.bmpmodel)"}
+      </button>
+
+      {modelPath && (
+        <p className="text-xs text-muted-foreground mt-2 truncate" title={modelPath}>
+          {modelPath}
+        </p>
+      )}
+
+      {modelInfo && (
+        <div className="mt-3 p-3 bg-muted/30 rounded-md space-y-1 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Type</span>
+            <span className="font-medium capitalize">
+              {modelInfo.analysis_type === "binary"
+                ? "Binary Classification"
+                : "Survival Analysis"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Variables</span>
+            <span className="font-medium">{modelInfo.variable_count}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Train AUC / Test AUC</span>
+            <span className="font-medium">
+              {formatAuc(modelInfo.train_auc, 3)} / {formatAuc(modelInfo.test_auc, 3)}
+            </span>
+          </div>
+          {modelInfo.train_auc_reason && <p className="text-xs text-muted-foreground">Train AUC: {modelInfo.train_auc_reason}</p>}
+          {modelInfo.test_auc_reason && <p className="text-xs text-muted-foreground">Test AUC: {modelInfo.test_auc_reason}</p>}
+          {modelInfo.analysis_type === "survival" && (
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Training risk threshold</span>
+              <span className="font-medium text-right">
+                {modelInfo.risk_threshold?.toFixed(4) ?? "Unavailable — retrain model"}
+                {modelInfo.risk_threshold_scale && (
+                  <span className="block text-xs text-muted-foreground">
+                    Scale: {modelInfo.risk_threshold_scale === "exp_uncentered_linear_predictor"
+                      ? "exp(uncentered linear predictor)"
+                      : modelInfo.risk_threshold_scale}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {modelInfo.analysis_type === "binary" && modelInfo.optimal_threshold != null && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Threshold</span>
+              <span className="font-medium">
+                {modelInfo.optimal_threshold.toFixed(4)}
+              </span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Training Data</span>
+            <span className="font-medium">
+              {modelInfo.training_data_file} ({modelInfo.training_sample_count} samples)
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Created</span>
+            <span className="font-medium">
+              {modelInfo.created_at
+                ? new Date(modelInfo.created_at).toLocaleDateString()
+                : "Unknown"}
+            </span>
+          </div>
+          <div className="pt-2">
+            <p className="text-xs text-muted-foreground">
+              Variables: {modelInfo.variables.join(", ")}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DataSection() {
+  const modelInfo = usePredictionStore((s) => s.modelInfo);
+  const dataFile = usePredictionStore((s) => s.dataFile);
+  const dataInfo = usePredictionStore((s) => s.dataInfo);
+  const columnValidation = usePredictionStore((s) => s.columnValidation);
+  const setDataFile = usePredictionStore((s) => s.setDataFile);
+  const setDataInfo = usePredictionStore((s) => s.setDataInfo);
+  const setColumnValidation = usePredictionStore((s) => s.setColumnValidation);
+
+  const handlePickData = async () => {
+    const path = await pickFile();
+    if (!path) return;
+
     try {
-      if (!state.model)
-        throw new Error("Load and validate the selected frozen model first.");
-      const options: Record<string, string | number> = {
-        model: state.model.path,
-        data: state.dataPath,
-        output: state.output,
-      };
-      if (survival) options["time-unit"] = state.timeUnit;
-      if (state.operation === "evaluate") {
-        if (state.bootstrap === null || state.seed === null)
-          throw new Error("Provide evaluation bootstrap and seed values.");
-        options["bootstrap-samples"] = state.bootstrap;
-        options.seed = state.seed;
+      const info = await readCsvHeader(path);
+      setDataFile(path);
+      setDataInfo(info);
+
+      // Validate columns against model
+      if (modelInfo) {
+        const required = modelInfo.variables;
+        const present = required.filter((v) => info.columns.includes(v));
+        const missing = required.filter((v) => !info.columns.includes(v));
+        const validation: ColumnValidation = {
+          required,
+          present,
+          missing,
+          isValid: missing.length === 0,
+        };
+        setColumnValidation(validation);
       }
-      patch({ result: null });
-      await startJob({
-        operation: state.operation,
-        options,
-        ...(settings ? { settings } : {}),
-      });
     } catch (e) {
-      setError(errorText(e));
+      console.error("Failed to read CSV:", e);
     }
   };
-  const result = state.result,
-    predictions = text(object(result?.result.paths).predictions, "");
+
+  if (!modelInfo) {
+    return (
+      <div className="border border-border rounded-lg p-4 opacity-50">
+        <h3 className="text-sm font-medium mb-2">Step 2: New Patient Data</h3>
+        <p className="text-xs text-muted-foreground">Load a model first</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="stack">
-      <header>
-        <p className="eyebrow">FROZEN MODEL</p>
-        <h1>Prediction & external evaluation</h1>
-        <p>
-          Apply saved encoders, coefficients, outcome coding and thresholds to a
-          new cohort. Evaluation adds outcome-based performance and drift
-          diagnostics without fitting.
+    <div className="border border-border rounded-lg p-4">
+      <h3 className="text-sm font-medium mb-3">Step 2: New Patient Data</h3>
+      <button
+        onClick={handlePickData}
+        className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+      >
+        Select CSV File
+      </button>
+
+      {dataFile && (
+        <p className="text-xs text-muted-foreground mt-2 truncate" title={dataFile}>
+          {dataFile}
         </p>
-      </header>
-      <Section title="Load a frozen model">
-        <PathField
-          label="Model file"
-          value={state.modelPath}
-          onChange={(modelPath) =>
-            patch({ modelPath, model: null, result: null })
-          }
-        />
-        <button
-          disabled={loading || !state.modelPath}
-          onClick={() => void load()}
-        >
-          {loading ? "Loading model…" : "Load model"}
-        </button>
-        {error && <Notice tone="error">{error}</Notice>}
-        {state.model && <ModelDetails loaded={state.model} />}
-      </Section>
-      <Section title="Score a new cohort">
-        <div className="form-grid">
-          <Field label="Scoring operation">
-            <select
-              value={state.operation}
-              onChange={(e) =>
-                patch({
-                  operation: e.target.value as "predict" | "evaluate",
-                  result: null,
-                })
-              }
-            >
-              <option value="predict">
-                Prediction only (outcomes not required)
-              </option>
-              <option value="evaluate">
-                External evaluation (outcomes required)
-              </option>
-            </select>
-          </Field>
-          <PathField
-            label="New cohort CSV"
-            value={state.dataPath}
-            onChange={(dataPath) => patch({ dataPath, result: null })}
-          />
-        </div>
-        <PathField
-          label="Prediction / evaluation output"
-          value={state.output}
-          directory
-          onChange={(output) => patch({ output })}
-          hint={
-            state.operation === "predict"
-              ? "A destination folder or CSV path. Predictions are written to the engine-reported path."
-              : "An output root; evaluation creates its own runs/RUN_ID directory."
-          }
-        />
-        {survival && (
-          <Field
-            label="External data time unit"
-            hint="Declare the actual input unit. The engine rejects mismatches with the frozen model; no implicit unit conversion."
-          >
-            <select
-              value={state.timeUnit}
-              onChange={(e) => patch({ timeUnit: e.target.value })}
-            >
-              <option value="">Select unit</option>
-              {["days", "months", "years"].map((unit) => (
-                <option key={unit}>{unit}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-        {state.operation === "evaluate" && (
-          <>
-            <div className="form-grid">
-              <Field label="Evaluation bootstrap samples">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={state.bootstrap ?? ""}
-                  onChange={(e) => patch({ bootstrap: number(e.target.value) })}
-                />
-              </Field>
-              <Field label="Evaluation seed">
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={state.seed ?? ""}
-                  onChange={(e) => patch({ seed: number(e.target.value) })}
-                />
-              </Field>
-            </div>
-            <p>
-              Required outcomes:{" "}
-              {survival
-                ? `${text(object(model?.outcome).event)} (0 / 1) and ${text(object(model?.outcome).time_variable)} (${text(model?.time_unit)})`
-                : text(object(model?.outcome).column)}
-              . Class coding and evaluation horizon come from the frozen model.
-            </p>
-          </>
-        )}
-        <button
-          className="primary"
-          disabled={
-            busy ||
-            !doctor?.success ||
-            !state.model ||
-            !state.dataPath ||
-            !state.output ||
-            (survival && !state.timeUnit)
-          }
-          onClick={() => void start()}
-        >
-          {state.operation === "predict"
-            ? "Run prediction"
-            : "Run external evaluation"}
-        </button>
-      </Section>
-      {result && (
-        <Section title="Recorded scoring result">
-          <Notice
-            tone={
-              result.cancelled
-                ? "warning"
-                : result.success
-                  ? "success"
-                  : "error"
-            }
-          >
-            {result.cancelled
-              ? "Request cancelled; inspect retained output separately."
-              : result.success
-                ? "Engine verified scoring output."
-                : responseError(result)}
-          </Notice>
-          <QcView value={result.result.qc} />
-          {text(result.result.run_dir, "") && (
-            <>
-              <code className="path">{text(result.result.run_dir)}</code>
-              <button
-                onClick={() =>
-                  void openRun(text(result.result.run_dir), "results")
-                }
-              >
-                Open evaluation metrics and drift
-              </button>
-            </>
-          )}
-          {predictions && (
-            <SavedCsv
-              key={predictions}
-              path={predictions}
-              title="prediction results"
-            />
-          )}
-          <FileActions
-            path={text(object(result.result.paths).report_html, "")}
-            name="scoring HTML report"
-          />
-        </Section>
       )}
+
+      {dataInfo && (
+        <p className="text-xs text-muted-foreground mt-1">
+          {dataInfo.rowCount} rows, {dataInfo.columns.length} columns
+        </p>
+      )}
+
+      {columnValidation && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {columnValidation.required.map((v) => (
+            <span
+              key={v}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                columnValidation.present.includes(v)
+                  ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                  : "bg-red-500/10 text-red-700 dark:text-red-400"
+              }`}
+            >
+              {columnValidation.present.includes(v) ? "\u2713" : "\u2717"} {v}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {columnValidation && !columnValidation.isValid && (
+        <p className="text-xs text-destructive mt-2">
+          Missing {columnValidation.missing.length} required variable(s). Prediction cannot proceed.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RunSection() {
+  const modelPath = usePredictionStore((s) => s.modelPath);
+  const modelInfo = usePredictionStore((s) => s.modelInfo);
+  const dataFile = usePredictionStore((s) => s.dataFile);
+  const columnValidation = usePredictionStore((s) => s.columnValidation);
+  const status = usePredictionStore((s) => s.status);
+  const setStatus = usePredictionStore((s) => s.setStatus);
+  const setOutputDir = usePredictionStore((s) => s.setOutputDir);
+  const setResults = usePredictionStore((s) => s.setResults);
+  const setErrorMessage = usePredictionStore((s) => s.setErrorMessage);
+  const backend = useConfigStore((s) => s.backend);
+
+  const canRun =
+    modelInfo &&
+    dataFile &&
+    columnValidation?.isValid &&
+    status !== "running";
+
+  const handleRun = async () => {
+    if (!canRun) return;
+
+    // Use a temp output dir next to the data file
+    const dataDir = dataFile.replace(/[/\\][^/\\]+$/, "");
+    const outputDir = `${dataDir}/prediction_output`;
+
+    setOutputDir(outputDir);
+    setResults(null);
+    setErrorMessage("");
+    setStatus("running");
+    usePredictionStore.setState({ logs: [] });
+
+    try {
+      await runPrediction(modelPath, dataFile, outputDir, backend);
+    } catch (e) {
+      setErrorMessage(`Failed to start prediction: ${e}`);
+      setStatus("failed");
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await cancelPrediction();
+      setStatus("idle");
+    } catch (e) {
+      console.error("Cancel failed:", e);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleRun}
+        disabled={!canRun}
+        className="px-6 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {status === "running" ? "Running..." : "Run Prediction"}
+      </button>
+      {status === "running" && (
+        <button
+          onClick={handleCancel}
+          className="px-4 py-2 text-sm rounded-md border border-destructive text-destructive hover:bg-destructive/10 transition-colors"
+        >
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ResultsSection() {
+  const results = usePredictionStore((s) => s.results);
+  const status = usePredictionStore((s) => s.status);
+  const outputDir = usePredictionStore((s) => s.outputDir);
+  const modelInfo = usePredictionStore((s) => s.modelInfo);
+  const [saving, setSaving] = useState(false);
+
+  if (status !== "completed" || !results || results.rows.length === 0) {
+    return null;
+  }
+
+  const isBinary = modelInfo?.analysis_type === "binary";
+  const highCount = results.rows.filter(
+    (r) => r.risk_group === "High",
+  ).length;
+  const lowCount = results.rows.filter((r) => r.risk_group === "Low").length;
+
+  const handleExport = async () => {
+    const sourcePath = `${outputDir}/prediction_results.csv`;
+    setSaving(true);
+    try {
+      await saveFile(sourcePath, "prediction_results.csv");
+    } catch (e) {
+      console.error("Export failed:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium">
+          Results ({results.count} patients)
+        </h3>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {highCount} High / {lowCount} Low
+          </span>
+          <button
+            onClick={handleExport}
+            disabled={saving}
+            className="px-3 py-1.5 text-xs rounded-md border border-border hover:bg-accent transition-colors"
+          >
+            {saving ? "Saving..." : "Export CSV"}
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-auto max-h-[400px] border border-border rounded">
+        <table className="w-full text-xs">
+          <thead className="bg-muted sticky top-0 z-10">
+            <tr>
+              {results.headers.map((h) => (
+                <th
+                  key={h}
+                  className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap border-b border-border"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {results.rows.map((row, i) => (
+              <tr key={i} className="hover:bg-muted/30">
+                {results.headers.map((h) => (
+                  <td key={h} className="px-3 py-1.5 whitespace-nowrap">
+                    {h === "risk_group" ? (
+                      <span
+                        className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${
+                          row[h] === "High"
+                            ? "bg-red-500/10 text-red-700 dark:text-red-400"
+                            : "bg-green-500/10 text-green-700 dark:text-green-400"
+                        }`}
+                      >
+                        {String(row[h])}
+                      </span>
+                    ) : typeof row[h] === "number" ? (
+                      (row[h] as number) % 1 === 0
+                        ? String(row[h])
+                        : (row[h] as number).toFixed(4)
+                    ) : (
+                      String(row[h] ?? "")
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-xs text-muted-foreground mt-2 space-y-1">
+        {isBinary && (
+          <p>
+            Threshold: {modelInfo?.optimal_threshold?.toFixed(4) ?? "0.5"} |
+            Probability &ge; threshold = High (predicted class 1)
+          </p>
+        )}
+        {!isBinary && (
+          <p>
+            Training risk threshold: {modelInfo?.risk_threshold?.toFixed(4) ?? "Unavailable"} |
+            Risk score &ge; saved threshold = High
+          </p>
+        )}
+        {isBinary && (
+          <p className="text-amber-600 dark:text-amber-400">
+            Note: Risk group labels depend on how class labels were encoded in training data.
+            By default, 0 = Responder, 1 = Non-responder. &quot;High&quot; means high risk of non-response.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LogSection() {
+  const logs = usePredictionStore((s) => s.logs);
+  const status = usePredictionStore((s) => s.status);
+  const errorMessage = usePredictionStore((s) => s.errorMessage);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs.length]);
+
+  if (status === "idle" && logs.length === 0 && !errorMessage) {
+    return null;
+  }
+
+  return (
+    <div className="border border-border rounded-lg p-4">
+      <h3 className="text-sm font-medium mb-2">Log</h3>
+      {errorMessage && (
+        <p className="text-xs text-destructive mb-2">{errorMessage}</p>
+      )}
+      <div className="bg-muted/30 rounded p-3 h-32 overflow-y-auto font-mono text-xs space-y-0.5">
+        {logs.length === 0 ? (
+          <p className="text-muted-foreground">No log output yet.</p>
+        ) : (
+          logs.map((line, i) => (
+            <div key={i} className="text-muted-foreground whitespace-pre-wrap">
+              {line}
+            </div>
+          ))
+        )}
+        <div ref={logEndRef} />
+      </div>
+    </div>
+  );
+}
+
+export function PredictionPage() {
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <h2 className="text-lg font-semibold">Prediction</h2>
+      <p className="text-sm text-muted-foreground -mt-4">
+        Load a trained model and predict outcomes for new patients.
+      </p>
+
+      <ModelSection />
+      <DataSection />
+      <RunSection />
+      <ResultsSection />
+      <LogSection />
     </div>
   );
 }

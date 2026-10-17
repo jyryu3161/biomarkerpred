@@ -1,24 +1,15 @@
-# Synthetic fixture only; paths resolve relative to this configuration file.
-config_version: 1
-analysis_type: survival
-data_file: ../tests/fixtures/survival.csv
-output_dir: ../results/examples/survival
-sample_id: sample
-group_column: patient
-clinical_columns: [age, sex]
-outer_folds: 3
-inner_folds: 2
-repeats: 1
-seed: 1
-workers: 1
-models: [stepwise, elastic_net]
-feature_sets: [genes, clinical, combined]
-max_features: 3
-panel_sizes: [1, 3]
-# Small runnable demonstration, not a final research uncertainty budget.
-bootstrap_samples: 20
-selection_frequency: 0.5
-event: OS
-time_variable: OS.year
-time_unit: years
-horizon: 3
+# Replace paths and column names with those in your own data.
+# In Docker, use workdir: "/work" and paths under that mounted directory.
+workdir: "."
+survival:
+  data_file: data/my_data.csv
+  sample_id: sample
+  event: status          # 1 = event, 0 = censored
+  time_variable: time   # Column containing follow-up time
+  horizon: 5            # Numeric time, in the same units as time_variable
+  split_prop: 0.7
+  num_seed: 100
+  output_dir: results/survival
+  freq: 50
+  exclude: []
+  include: []

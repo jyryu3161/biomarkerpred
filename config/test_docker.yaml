@@ -1,25 +1,18 @@
-# Synthetic fixture only; paths resolve relative to this configuration file.
-config_version: 1
-analysis_type: binary
-data_file: ../tests/fixtures/binary.csv
-output_dir: ../results/examples/test_docker
-sample_id: sample
-group_column: patient
-clinical_columns: [age, sex]
-outer_folds: 3
-inner_folds: 2
-repeats: 1
-seed: 1
-workers: 1
-models: [stepwise]
-feature_sets: [genes]
-max_features: 3
-panel_sizes: [1, 3]
-# Small runnable demonstration, not a final research uncertainty budget.
-bootstrap_samples: 0
-selection_frequency: 0.5
-outcome: response
-positive_class: "1"
-negative_class: "0"
-positive_label: "Responder"
-negative_label: "Non-responder"
+# RESPRED - Docker Test Configuration
+workdir: "/work"
+data_file: /work/Example_data.csv
+
+binary:
+  data_file: /work/Example_data.csv
+  sample_id: sample
+  outcome: response
+  split_prop: 0.7
+  num_seed: 3
+  output_dir: /work/results/binary
+  freq: 2
+  exclude: []
+  include: []
+  max_candidates_per_step: 200
+  prescreen_seeds: 3
+  p_adjust_method: none
+  p_threshold: 0.05

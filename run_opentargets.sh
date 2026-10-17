@@ -1,68 +1,119 @@
-#!/usr/bin/env bash
-# Batch disease-prior analyses through the same QC/manifest-verifying engine.
-set -euo pipefail
-bmp_script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-bmp_expected_type=""
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  cat <<'HELP'
-Usage: ./run_opentargets.sh [--binary] CONFIG [CONFIG ...]
-Each explicit disease-evidence config is validated, then analyzed by the shared CLI.
-Paths are relative to the invocation directory; quote paths containing spaces.
-Stdout contains one JSON result per CLI invocation; progress/summary use stderr.
-Any invalid config, failed analysis or invalid manifest makes the batch exit nonzero.
-Use generate_opentargets_configs.py to attach an immutable disease snapshot first.
-Set BMP_RSCRIPT to one Rscript executable path if the project runtime is elsewhere.
-HELP
-  exit 0
+#!/bin/bash
+# ============================================================================
+# RESPRED - Run binary analysis for all datasets with Open Targets
+# evidence-based gene filtering
+# ============================================================================
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_error() {
+    echo -e "${RED}✗ $1${NC}"
+}
+
+print_info() {
+    echo -e "${YELLOW}→ $1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+print_header() {
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
+}
+
+# Add pixi to PATH if it exists
+if [ -f "$HOME/.pixi/bin/pixi" ]; then
+    export PATH="$HOME/.pixi/bin:$PATH"
 fi
-if [[ "${1:-}" == "--binary" ]]; then bmp_expected_type="binary"; shift; fi
-if (( $# == 0 )); then
-  printf '%s\n' 'Provide one or more config paths; see --help. Automatic drug/disease inference is retired.' >&2
-  exit 2
+
+# Check if pixi is installed
+if ! command -v pixi &> /dev/null; then
+    print_error "pixi is not installed or not in PATH"
+    print_info "Please run: ./install.sh"
+    exit 1
 fi
-command -v python3 >/dev/null 2>&1 || { printf '%s\n' 'Python 3 is required to verify batch results.' >&2; exit 127; }
-bmp_failed=0
-for bmp_config in "$@"; do
-  printf 'Validating %s\n' "$bmp_config" >&2
-  if bmp_validation="$("$bmp_script_dir/run_analysis.sh" validate --config "$bmp_config" --json)"; then
-    printf '%s\n' "$bmp_validation"
-    if ! python3 -c '
-import json, sys
-def require(condition, message):
-    if not condition: raise ValueError(message)
-value = json.load(sys.stdin)
-require(value.get("ok") is True and value.get("qc", {}).get("status") == "passed", "QC did not pass")
-config = value["config"]
-require(config.get("evidence"), "This runner requires an explicit disease-evidence snapshot")
-require(not sys.argv[1] or config["analysis_type"] == sys.argv[1], "Binary runner received a non-binary configuration")
-' "$bmp_expected_type" <<< "$bmp_validation"; then
-      bmp_failed=$((bmp_failed + 1)); continue
+
+# Check if dependencies are installed
+if [ ! -d ".pixi" ]; then
+    print_error "Dependencies not installed"
+    print_info "Please run: pixi install && pixi run install-r-packages"
+    exit 1
+fi
+
+# Get all Open Targets config files
+CONFIG_FILES=(config/*_opentargets_analysis.yaml)
+
+# Check if config files exist
+if [ ! -f "${CONFIG_FILES[0]}" ]; then
+    print_error "No Open Targets config files found in ./config/"
+    print_info "Please run:"
+    print_info "  python3 fetch_opentargets_genes.py"
+    print_info "  python3 generate_opentargets_configs.py"
+    exit 1
+fi
+
+# Count total datasets
+TOTAL=${#CONFIG_FILES[@]}
+print_header "Running Open Targets Evidence-Filtered Analysis for $TOTAL Datasets"
+
+# Initialize counters
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+FAILED_DATASETS=()
+
+# Create results directory
+mkdir -p results
+
+# Process each dataset
+for i in "${!CONFIG_FILES[@]}"; do
+    CONFIG="${CONFIG_FILES[$i]}"
+    DATASET=$(basename "$CONFIG" _opentargets_analysis.yaml)
+    CURRENT=$((i + 1))
+
+    print_header "[$CURRENT/$TOTAL] Processing: $DATASET (Open Targets filtered)"
+    print_info "Config: $CONFIG"
+
+    # Run binary analysis
+    print_info "Running binary analysis: pixi run binary -- --config $CONFIG"
+    if pixi run binary -- --config "$CONFIG" 2>&1; then
+        print_success "$DATASET binary analysis completed"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+        EXIT_CODE=$?
+        print_error "$DATASET binary analysis failed (exit code: $EXIT_CODE)"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        FAILED_DATASETS+=("$DATASET")
     fi
-  else
-    printf '%s\n' "$bmp_validation"
-    bmp_failed=$((bmp_failed + 1)); continue
-  fi
-  if bmp_result="$("$bmp_script_dir/run_analysis.sh" analyze --config "$bmp_config" --json)"; then
-    printf '%s\n' "$bmp_result"
-    if ! python3 -c '
-import hashlib, json, pathlib, sys
-def require(condition, message):
-    if not condition: raise ValueError(message)
-value = json.load(sys.stdin)
-require(value.get("ok") is True and value.get("status") == "completed", "CLI did not complete")
-run = pathlib.Path(value["run_dir"]).resolve()
-manifest = json.loads((run / "manifest.json").read_text())
-require(manifest["status"] == "completed" and manifest["run_id"] == value["run_id"], "Run identity/status mismatch")
-hashes = manifest["artifact_verification"]["sha256"]
-for name in manifest["required_artifacts"]:
-    path = (run / name).resolve()
-    require(path.is_relative_to(run) and path.is_file() and path.stat().st_size > 0, "Missing/invalid artifact: " + name)
-    require(hashlib.sha256(path.read_bytes()).hexdigest() == hashes[name], "Changed artifact: " + name)
-' <<< "$bmp_result"; then bmp_failed=$((bmp_failed + 1)); fi
-  else
-    printf '%s\n' "$bmp_result"
-    bmp_failed=$((bmp_failed + 1))
-  fi
+
+    echo ""
 done
-printf 'Batch finished: %s configuration(s), %s failure(s).\n' "$#" "$bmp_failed" >&2
-(( bmp_failed == 0 ))
+
+# Print summary
+print_header "Analysis Summary"
+echo -e "${BLUE}Binary Analysis:${NC}"
+echo -e "  ${GREEN}✓ Successful: $SUCCESS_COUNT${NC}"
+echo -e "  ${RED}✗ Failed: $FAIL_COUNT${NC}"
+echo ""
+
+EXIT_CODE=0
+if [ $FAIL_COUNT -gt 0 ]; then
+    print_error "Failed analyses:"
+    for dataset in "${FAILED_DATASETS[@]}"; do
+        echo "  - $dataset"
+    done
+    EXIT_CODE=1
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
+    print_success "All analyses completed successfully!"
+fi
+
+exit $EXIT_CODE

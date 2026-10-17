@@ -11,7 +11,6 @@ const CACHE_DIR: &str = "evidence/opentargets";
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gene {
     pub symbol: String,
-    pub ensembl_id: String,
     pub score: f64,
 }
 
@@ -24,16 +23,12 @@ pub struct Disease {
 
 #[derive(Debug, Serialize)]
 pub struct FetchGenesResult {
-    pub cache_key: String,
     pub file_path: String,
     pub gene_count: usize,
-    pub provenance: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CachedEvidence {
-    pub cache_key: String,
-    pub provenance: serde_json::Value,
     pub efo_id: String,
     pub disease_name: String,
     pub gene_count: usize,
@@ -80,7 +75,6 @@ struct TargetRow {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TargetInfo {
-    id: String,
     approved_symbol: String,
 }
 
@@ -89,7 +83,6 @@ struct TargetInfo {
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
     data: Option<SearchData>,
-    errors: Option<Vec<GqlError>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,16 +107,6 @@ struct SearchHit {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CacheMeta {
-    #[serde(default)]
-    csv_sha256: Option<String>,
-    #[serde(default)]
-    source: String,
-    #[serde(default)]
-    api_url: String,
-    #[serde(default)]
-    release: Option<String>,
-    #[serde(default)]
-    query_variables: serde_json::Value,
     disease_name: String,
     efo_id: String,
     gene_count: usize,
@@ -132,30 +115,51 @@ struct CacheMeta {
 
 // --- Helpers ---
 
+fn find_project_root() -> Option<PathBuf> {
+    let candidates = [
+        std::env::current_dir().ok(),
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.join("../../").canonicalize().ok()),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf())),
+        std::env::current_exe().ok().and_then(|p| {
+            p.parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+        }),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.join("Main_Binary.R").exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 fn cache_dir() -> Result<PathBuf, String> {
-    // Installed resources are read-only. Evidence belongs to the user's data.
+    // Try project root first (development mode)
+    if let Some(root) = find_project_root() {
+        let dir = root.join(CACHE_DIR);
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| format!("Cannot create cache directory: {}", e))?;
+        }
+        return Ok(dir);
+    }
+    // Fallback: user data directory (installed app on Windows/macOS/Linux)
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "Cannot determine user data directory")?;
+        .map_err(|_| "Cannot determine home directory".to_string())?;
     let dir = PathBuf::from(home).join(".biomarkerpred").join(CACHE_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-fn safe_id(id: &str) -> Result<String, String> {
-    if id.is_empty()
-        || !id
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"_:-".contains(&c))
-    {
-        return Err("Disease ID must be an ontology identifier containing letters, digits, underscores, colons or hyphens".into());
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Cannot create cache directory: {}", e))?;
     }
-    Ok(id.replace(':', "_"))
-}
-fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())
+    Ok(dir)
 }
 
 fn now_iso() -> String {
@@ -171,10 +175,7 @@ fn now_iso() -> String {
     let s = time_of_day % 60;
     // Approximate date from epoch days (good enough for display)
     let (y, mo, day) = epoch_days_to_date(days);
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
-        y, mo, day, h, m, s
-    )
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, mo, day, h, m, s)
 }
 
 fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
@@ -201,13 +202,26 @@ pub async fn opentargets_search_diseases(query: String) -> Result<Vec<Disease>, 
         return Ok(Vec::new());
     }
 
-    let client = client()?;
+    let client = reqwest::Client::new();
 
-    let gql = "query SearchDiseases($query: String!, $size: Int!) { search(queryString: $query, entityNames: [\"disease\"], page: {index: 0, size: $size}) { hits { id name description entity } } }";
+    let gql = format!(
+        r#"{{
+  search(queryString: "{}", entityNames: ["disease"], page: {{ index: 0, size: {} }}) {{
+    hits {{
+      id
+      name
+      description
+      entity
+    }}
+  }}
+}}"#,
+        query.replace('"', "\\\""),
+        SEARCH_SIZE
+    );
 
     let response = client
         .post(OPEN_TARGETS_API)
-        .json(&serde_json::json!({ "query": gql, "variables": {"query": query, "size": SEARCH_SIZE} }))
+        .json(&serde_json::json!({ "query": gql }))
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {}", e))?;
@@ -224,9 +238,6 @@ pub async fn opentargets_search_diseases(query: String) -> Result<Vec<Disease>, 
         .await
         .map_err(|e| format!("Failed to parse search response: {}", e))?;
 
-    if let Some(error) = body.errors.and_then(|errors| errors.into_iter().next()) {
-        return Err(format!("Open Targets API error: {}", error.message));
-    }
     let hits = body
         .data
         .and_then(|d| d.search)
@@ -253,19 +264,31 @@ pub async fn opentargets_fetch_genes(
     efo_id: String,
     disease_name: String,
 ) -> Result<FetchGenesResult, String> {
-    let client = client()?;
-    safe_id(&efo_id)?;
+    let client = reqwest::Client::new();
     let mut all_genes: Vec<Gene> = Vec::new();
     let mut page_index: usize = 0;
-    let mut expected_count = None;
-    let mut identifiers = std::collections::HashSet::new();
 
     loop {
-        let gql = "query DiseaseTargets($id: String!, $index: Int!, $size: Int!) { disease(efoId: $id) { associatedTargets(page: { index: $index, size: $size }) { count rows { target { id approvedSymbol } score } } } }";
+        let gql = format!(
+            r#"{{
+  disease(efoId: "{}") {{
+    associatedTargets(page: {{ index: {}, size: {} }}) {{
+      count
+      rows {{
+        target {{
+          approvedSymbol
+        }}
+        score
+      }}
+    }}
+  }}
+}}"#,
+            efo_id, page_index, PAGE_SIZE
+        );
 
         let response = client
             .post(OPEN_TARGETS_API)
-            .json(&serde_json::json!({ "query": gql, "variables": {"id": efo_id, "index": page_index, "size": PAGE_SIZE} }))
+            .json(&serde_json::json!({ "query": gql }))
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {}", e))?;
@@ -294,131 +317,57 @@ pub async fn opentargets_fetch_genes(
             .and_then(|d| d.disease)
             .ok_or_else(|| format!("No data found for disease ID: {}", efo_id))?;
 
-        let complete = append_page(
-            &mut all_genes,
-            &mut identifiers,
-            &mut expected_count,
-            disease_data.associated_targets,
-        )?;
+        let targets = disease_data.associated_targets;
+        let page_count = targets.rows.len();
+
+        for row in targets.rows {
+            all_genes.push(Gene {
+                symbol: row.target.approved_symbol,
+                score: row.score,
+            });
+        }
+
         page_index += 1;
-        if complete {
+
+        if page_count < PAGE_SIZE || all_genes.len() >= targets.count {
             break;
         }
     }
-    publish_snapshot(
-        &cache_dir()?,
-        all_genes,
-        efo_id,
-        disease_name,
-        page_index,
-        expected_count,
-    )
-}
-fn append_page(
-    all_genes: &mut Vec<Gene>,
-    identifiers: &mut std::collections::HashSet<String>,
-    expected_count: &mut Option<usize>,
-    targets: AssociatedTargets,
-) -> Result<bool, String> {
-    let page_count = targets.rows.len();
-    if let Some(expected) = *expected_count {
-        if expected != targets.count {
-            return Err(
-                "Open Targets count changed during pagination; retry for a consistent snapshot"
-                    .into(),
-            );
-        }
-    } else {
-        *expected_count = Some(targets.count);
-    }
-    if page_count > PAGE_SIZE || targets.count > 1_000_000 {
-        return Err("Invalid Open Targets pagination response".into());
-    }
-    for row in targets.rows {
-        if !row.score.is_finite()
-            || !(0.0..=1.0).contains(&row.score)
-            || row.target.id.trim().is_empty()
-            || row.target.approved_symbol.trim().is_empty()
-        {
-            return Err("Open Targets returned a missing target identifier/symbol or invalid association score".into());
-        }
-        if !identifiers.insert(row.target.id.clone()) {
-            return Err(
-                "Open Targets repeated a target across pages; retry for a consistent snapshot"
-                    .into(),
-            );
-        }
-        all_genes.push(Gene {
-            symbol: row.target.approved_symbol,
-            ensembl_id: row.target.id,
-            score: row.score,
-        });
-    }
-    if all_genes.len() > targets.count {
-        return Err("Open Targets returned more targets than its recorded count".into());
-    }
-    if all_genes.len() == targets.count {
-        return Ok(true);
-    }
-    if page_count < PAGE_SIZE {
-        return Err("Open Targets pagination ended before its recorded total; no partial evidence was cached".into());
-    }
-    Ok(false)
-}
-fn publish_snapshot(
-    dir: &std::path::Path,
-    all_genes: Vec<Gene>,
-    efo_id: String,
-    disease_name: String,
-    page_index: usize,
-    expected_count: Option<usize>,
-) -> Result<FetchGenesResult, String> {
-    // Publish an immutable CSV+metadata pair by renaming a unique directory.
-    // Existing snapshots may be in use by running analyses and are never rewritten.
-    let pending = tempfile::Builder::new()
-        .prefix(".pending-")
-        .tempdir_in(dir)
-        .map_err(|e| e.to_string())?;
-    let csv_path = pending.path().join("genes.csv");
-    let mut wtr = csv::Writer::from_path(&csv_path).map_err(|e| e.to_string())?;
-    wtr.write_record(["gene_symbol", "score", "ensembl_id"])
-        .map_err(|e| e.to_string())?;
+
+    // Save to cache directory
+    let dir = cache_dir()?;
+    let safe_id = efo_id.replace(':', "_");
+    let csv_path = dir.join(format!("{}.csv", safe_id));
+    let meta_path = dir.join(format!("{}.meta.json", safe_id));
+
+    // Write CSV
+    let mut wtr = csv::Writer::from_path(&csv_path)
+        .map_err(|e| format!("Cannot create CSV: {}", e))?;
+
+    wtr.write_record(["gene_symbol", "score"])
+        .map_err(|e| format!("CSV write error: {}", e))?;
+
     for gene in &all_genes {
-        wtr.serialize((&gene.symbol, gene.score, &gene.ensembl_id))
-            .map_err(|e| e.to_string())?;
+        wtr.serialize((&gene.symbol, gene.score))
+            .map_err(|e| format!("CSV write error: {}", e))?;
     }
-    wtr.flush().map_err(|e| e.to_string())?;
-    drop(wtr);
+    wtr.flush().map_err(|e| format!("CSV flush error: {}", e))?;
+
+    // Write metadata
     let meta = CacheMeta {
-        csv_sha256: Some(super::artifacts::sha256(&csv_path)?),
-        source: "Open Targets Platform".into(),
-        api_url: OPEN_TARGETS_API.into(),
-        release: None,
-        query_variables: serde_json::json!({"disease_id":efo_id,"page_size":PAGE_SIZE,"pages":page_index,"expected_count":expected_count}),
-        disease_name,
+        disease_name: disease_name.clone(),
         efo_id: efo_id.clone(),
         gene_count: all_genes.len(),
         fetched_at: now_iso(),
     };
-    let provenance = serde_json::to_value(&meta).map_err(|e| e.to_string())?;
-    super::artifacts::atomic_json(&pending.path().join("metadata.json"), &provenance)?;
-    let cache_key = format!(
-        "{}-{}",
-        safe_id(&efo_id)?,
-        pending
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .trim_start_matches(".pending-")
-    );
-    let destination = dir.join(&cache_key);
-    std::fs::rename(pending.path(), &destination).map_err(|e| e.to_string())?;
+    let meta_json = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("JSON serialize error: {}", e))?;
+    std::fs::write(&meta_path, meta_json)
+        .map_err(|e| format!("Cannot write metadata: {}", e))?;
+
     Ok(FetchGenesResult {
-        cache_key,
-        file_path: destination.join("genes.csv").to_string_lossy().into_owned(),
+        file_path: csv_path.to_string_lossy().to_string(),
         gene_count: all_genes.len(),
-        provenance,
     })
 }
 
@@ -432,36 +381,26 @@ pub async fn opentargets_list_cached() -> Result<Vec<CachedEvidence>, String> {
 
     let mut cached: Vec<CachedEvidence> = Vec::new();
 
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Cannot read cache directory: {}", e))?;
+
+    for entry in entries.flatten() {
         let path = entry.path();
-        let filename = entry.file_name().to_string_lossy().into_owned();
-        let (meta_path, csv_path, cache_key) = if path.is_dir() && !filename.starts_with('.') {
-            (path.join("metadata.json"), path.join("genes.csv"), filename)
-        } else if filename.ends_with(".meta.json") {
-            let stem = filename.trim_end_matches(".meta.json");
-            (
-                path.clone(),
-                dir.join(format!("{stem}.csv")),
-                format!("legacy-{stem}"),
-            )
-        } else {
-            continue;
-        };
-        if let Ok(content) = std::fs::read_to_string(&meta_path) {
-            if let Ok(meta) = serde_json::from_str::<CacheMeta>(&content) {
-                if csv_path.is_file() {
-                    cached.push(CachedEvidence {
-                        cache_key,
-                        provenance: serde_json::to_value(&meta).map_err(|e| e.to_string())?,
-                        efo_id: meta.efo_id,
-                        disease_name: meta.disease_name,
-                        gene_count: meta.gene_count,
-                        fetched_at: meta.fetched_at,
-                        file_path: csv_path.to_string_lossy().into_owned(),
-                    });
+        if path.to_string_lossy().ends_with(".meta.json")
+        {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(meta) = serde_json::from_str::<CacheMeta>(&content) {
+                    let safe_id = meta.efo_id.replace(':', "_");
+                    let csv_path = dir.join(format!("{}.csv", safe_id));
+                    if csv_path.exists() {
+                        cached.push(CachedEvidence {
+                            efo_id: meta.efo_id,
+                            disease_name: meta.disease_name,
+                            gene_count: meta.gene_count,
+                            fetched_at: meta.fetched_at,
+                            file_path: csv_path.to_string_lossy().to_string(),
+                        });
+                    }
                 }
             }
         }
@@ -473,23 +412,21 @@ pub async fn opentargets_list_cached() -> Result<Vec<CachedEvidence>, String> {
 
 /// Delete a cached evidence file (CSV + metadata).
 #[tauri::command]
-pub async fn opentargets_delete_cached(cache_key: String) -> Result<(), String> {
+pub async fn opentargets_delete_cached(efo_id: String) -> Result<(), String> {
     let dir = cache_dir()?;
-    let key = safe_id(&cache_key)?;
-    if let Some(stem) = key.strip_prefix("legacy-") {
-        for suffix in ["csv", "meta.json"] {
-            let path = dir.join(format!("{stem}.{suffix}"));
-            if path.exists() {
-                std::fs::remove_file(path).map_err(|e| e.to_string())?;
-            }
-        }
-    } else {
-        let path = dir.join(key);
-        if !path.join("metadata.json").is_file() {
-            return Err("Unknown evidence snapshot".into());
-        }
-        std::fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+    let safe_id = efo_id.replace(':', "_");
+    let csv_path = dir.join(format!("{}.csv", safe_id));
+    let meta_path = dir.join(format!("{}.meta.json", safe_id));
+
+    if csv_path.exists() {
+        std::fs::remove_file(&csv_path)
+            .map_err(|e| format!("Cannot delete CSV: {}", e))?;
     }
+    if meta_path.exists() {
+        std::fs::remove_file(&meta_path)
+            .map_err(|e| format!("Cannot delete metadata: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -499,22 +436,16 @@ pub async fn opentargets_count_filtered(
     file_path: String,
     score_threshold: f64,
 ) -> Result<FilteredCount, String> {
-    let mut rdr =
-        csv::Reader::from_path(&file_path).map_err(|e| format!("Cannot read CSV: {}", e))?;
+    let mut rdr = csv::Reader::from_path(&file_path)
+        .map_err(|e| format!("Cannot read CSV: {}", e))?;
 
-    let score_index = rdr
-        .headers()
-        .map_err(|e| e.to_string())?
-        .iter()
-        .position(|h| h == "score")
-        .ok_or("Evidence CSV has no score column")?;
     let mut total = 0usize;
     let mut passed = 0usize;
 
     for result in rdr.records() {
         let record = result.map_err(|e| format!("CSV parse error: {}", e))?;
         total += 1;
-        if let Some(score_str) = record.get(score_index) {
+        if let Some(score_str) = record.get(1) {
             if let Ok(score) = score_str.parse::<f64>() {
                 if score >= score_threshold {
                     passed += 1;
@@ -530,103 +461,4 @@ pub async fn opentargets_count_filtered(
 pub struct FilteredCount {
     pub total: usize,
     pub passed: usize,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn page(count: usize, rows: serde_json::Value) -> AssociatedTargets {
-        serde_json::from_value(serde_json::json!({"count":count,"rows":rows})).unwrap()
-    }
-    #[test]
-    fn rejects_partial_duplicate_invalid_target_evidence() {
-        let valid = serde_json::json!({"target":{"id":"ENSG1","approvedSymbol":"A"},"score":0.7});
-        let mut genes = vec![];
-        let mut ids = std::collections::HashSet::new();
-        let mut expected = None;
-        assert!(append_page(
-            &mut genes,
-            &mut ids,
-            &mut expected,
-            page(2, serde_json::json!([valid.clone()]))
-        )
-        .unwrap_err()
-        .contains("pagination ended"));
-        let mut genes = vec![];
-        let mut ids = std::collections::HashSet::new();
-        let mut expected = None;
-        assert!(append_page(
-            &mut genes,
-            &mut ids,
-            &mut expected,
-            page(2, serde_json::json!([valid.clone(), valid.clone()]))
-        )
-        .unwrap_err()
-        .contains("repeated"));
-        let mut bad = valid.clone();
-        bad["score"] = serde_json::json!(1.2);
-        let mut genes = vec![];
-        let mut ids = std::collections::HashSet::new();
-        let mut expected = None;
-        assert!(append_page(
-            &mut genes,
-            &mut ids,
-            &mut expected,
-            page(1, serde_json::json!([bad]))
-        )
-        .is_err());
-        let mut genes = vec![];
-        let mut ids = std::collections::HashSet::new();
-        let mut expected = Some(2);
-        assert!(append_page(
-            &mut genes,
-            &mut ids,
-            &mut expected,
-            page(1, serde_json::json!([valid]))
-        )
-        .unwrap_err()
-        .contains("count changed"));
-    }
-    #[test]
-    fn repeated_disease_fetches_publish_distinct_immutable_snapshots() {
-        let dir = tempfile::tempdir().unwrap();
-        let gene = || {
-            vec![Gene {
-                symbol: "A,quoted".into(),
-                ensembl_id: "ENSG1".into(),
-                score: 0.7,
-            }]
-        };
-        let first = publish_snapshot(
-            dir.path(),
-            gene(),
-            "MONDO_0004989".into(),
-            "Disease".into(),
-            1,
-            Some(1),
-        )
-        .unwrap();
-        let hash = super::super::artifacts::sha256(std::path::Path::new(&first.file_path)).unwrap();
-        let second = publish_snapshot(
-            dir.path(),
-            gene(),
-            "MONDO_0004989".into(),
-            "Disease".into(),
-            1,
-            Some(1),
-        )
-        .unwrap();
-        assert_ne!(first.cache_key, second.cache_key);
-        assert_ne!(first.file_path, second.file_path);
-        assert_eq!(
-            hash,
-            super::super::artifacts::sha256(std::path::Path::new(&first.file_path)).unwrap()
-        );
-        assert_eq!(first.provenance["release"], serde_json::Value::Null);
-        assert_eq!(first.provenance["csv_sha256"], hash);
-        let table =
-            super::super::fs_ops::read_csv(std::path::Path::new(&first.file_path), None).unwrap();
-        assert_eq!(table["rows"][0]["ensembl_id"], "ENSG1");
-        assert_eq!(table["rows"][0]["gene_symbol"], "A,quoted");
-    }
 }

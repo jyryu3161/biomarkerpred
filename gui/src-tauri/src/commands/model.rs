@@ -1,181 +1,595 @@
-use super::artifacts::{copy_preserving_source, read_json};
-use serde_json::{json, Value};
-use std::{collections::HashSet, path::Path};
-const MIGRATION:&str="Retrain legacy or incomplete models with analyze. Frozen version-1 encoders, thresholds and survival baselines cannot be reconstructed.";
-fn text(v: &Value) -> bool {
-    v.as_str().is_some_and(|s| !s.is_empty())
+use super::{find_docker, hide_console};
+use crate::commands::analysis::find_project_root;
+use crate::models::error::AppError;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager, State};
+
+pub struct PredictionProcess {
+    pub child: Mutex<Option<u32>>,
 }
-fn number(v: &Value) -> bool {
-    v.as_f64().is_some_and(f64::is_finite)
-}
-fn strings(v: &Value) -> Result<Vec<&str>, String> {
-    v.as_array()
-        .ok_or("Expected an array")?
-        .iter()
-        .map(|x| x.as_str().ok_or("Expected string array".into()))
-        .collect()
-}
-pub fn validate_model(m: &Value) -> Result<(), String> {
-    validate_inner(m).map_err(|e| format!("Invalid .bmpmodel: {e}. {MIGRATION}"))
-}
-fn validate_inner(m: &Value) -> Result<(), String> {
-    if m["format"] != "BioMarkerPred" || m["model_version"] != 1 {
-        return Err("unsupported format/version".into());
-    }
-    let kind = m["analysis_type"].as_str().ok_or("analysis_type missing")?;
-    if !["binary", "survival"].contains(&kind)
-        || !text(&m["sample_id"])
-        || (!m["group_column"].is_null() && !text(&m["group_column"]))
-    {
-        return Err("invalid analysis/identifier roles".into());
-    }
-    if m["recipe"]["recipe_version"] != 1 {
-        return Err("missing recipe version".into());
-    }
-    let features = strings(&m["features"])?;
-    let columns = strings(&m["design_columns"])?;
-    strings(&m["selected_genes"])?;
-    strings(&m["clinical_columns"])?;
-    let coefficients = m["coefficients"]
-        .as_object()
-        .ok_or("coefficients must be an object, including a null model")?;
-    if features.iter().collect::<HashSet<_>>().len() != features.len()
-        || columns.iter().collect::<HashSet<_>>().len() != columns.len()
-        || coefficients.len() != columns.len()
-        || columns.iter().any(|c| !number(&m["coefficients"][*c]))
-        || !number(&m["intercept"])
-    {
-        return Err("design/coefficients mismatch".into());
-    }
-    let mut encoded = HashSet::new();
-    for feature in features {
-        let spec = &m["recipe"]["predictors"][feature];
-        let cols = strings(&spec["columns"])?;
-        if cols.iter().collect::<HashSet<_>>().len() != cols.len() {
-            return Err("duplicate encoder columns".into());
-        }
-        match spec["type"].as_str() {
-            Some("numeric") => {
-                if cols.len() != 1
-                    || ["median", "center", "scale"]
-                        .iter()
-                        .any(|k| !number(&spec[*k]))
-                    || spec["scale"].as_f64().unwrap_or(0.) <= 0.
-                {
-                    return Err("numeric encoder missing/invalid".into());
-                }
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::parse_model_info;
+
+    #[test]
+    fn unavailable_auc_and_saved_risk_threshold_survive_loading() {
+        let metadata = parse_model_info(
+            r#"{
+            "analysis_type": "survival",
+            "model": {
+                "variables": ["GENE"], "coefficients": {"GENE": 0.5},
+                "risk_threshold": 2.75,
+                "risk_threshold_scale": "exp_uncentered_linear_predictor"
+            },
+            "performance": {
+                "train_auc": 0.82, "test_auc": null,
+                "test_auc_reason": "No cases before horizon, AUC unavailable"
             }
-            Some("categorical") => {
-                let levels = strings(&spec["levels"])?;
-                if levels.is_empty()
-                    || levels.iter().collect::<HashSet<_>>().len() != levels.len()
-                    || cols.len() + 1 != levels.len()
-                    || !levels.contains(&spec["mode"].as_str().unwrap_or(""))
-                {
-                    return Err("categorical encoder missing/invalid".into());
-                }
-            }
-            _ => return Err("missing predictor encoder".into()),
-        }
-        encoded.extend(cols);
+        }"#,
+        )
+        .unwrap();
+        let json = serde_json::to_value(metadata).unwrap();
+        assert_eq!(json["train_auc"], 0.82);
+        assert!(json["test_auc"].is_null());
+        assert_eq!(
+            json["test_auc_reason"],
+            "No cases before horizon, AUC unavailable"
+        );
+        assert_eq!(json["risk_threshold"], 2.75);
+        assert_eq!(
+            json["risk_threshold_scale"],
+            "exp_uncentered_linear_predictor"
+        );
     }
-    if encoded != columns.iter().copied().collect() {
-        return Err("recipe design mismatch".into());
+
+    #[test]
+    fn missing_auc_is_not_zero_and_legacy_models_remain_loadable() {
+        let metadata = parse_model_info(
+            r#"{
+            "analysis_type": "binary",
+            "model": {"variables": ["GENE"], "coefficients": {"GENE": 0.5}},
+            "performance": {"test_auc": 0}
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(metadata.train_auc, None);
+        assert!(metadata
+            .train_auc_reason
+            .unwrap()
+            .contains("no reason saved"));
+        assert_eq!(metadata.test_auc, Some(0.0));
+        assert_eq!(metadata.test_auc_reason, None);
+        assert_eq!(metadata.risk_threshold, None);
     }
-    if !number(&m["threshold"]) {
-        return Err("frozen threshold missing".into());
-    }
-    if kind == "binary" {
-        if !(0. ..=1.).contains(&m["threshold"].as_f64().unwrap())
-            || [
-                "positive_class",
-                "negative_class",
-                "positive_label",
-                "negative_label",
-            ]
-            .iter()
-            .any(|k| !text(&m["outcome"][*k]))
-            || m["outcome"]["positive_class"] == m["outcome"]["negative_class"]
-        {
-            return Err("binary coding/labels/threshold invalid".into());
-        }
-    } else {
-        let nums = |v: &Value| -> Result<Vec<f64>, String> {
-            v.as_array()
-                .ok_or("Missing survival array")?
-                .iter()
-                .map(|x| {
-                    x.as_f64()
-                        .filter(|n| n.is_finite())
-                        .ok_or("Nonfinite survival value".into())
-                })
+}
+
+/// Model metadata returned to the frontend after loading a .bmpmodel file.
+#[derive(serde::Serialize)]
+pub struct ModelInfo {
+    pub version: String,
+    pub created_at: String,
+    pub analysis_type: String,
+    pub variable_count: usize,
+    pub variables: Vec<String>,
+    pub formula: String,
+    pub train_auc: Option<f64>,
+    pub test_auc: Option<f64>,
+    pub train_auc_reason: Option<String>,
+    pub test_auc_reason: Option<String>,
+    pub optimal_threshold: Option<f64>,
+    pub risk_threshold: Option<f64>,
+    pub risk_threshold_scale: Option<String>,
+    pub training_data_file: String,
+    pub training_sample_count: u32,
+    /// Embedded analysis config (for restoring setup state on load)
+    pub config: Option<serde_json::Value>,
+}
+
+/// Load and validate a .bmpmodel file, returning its metadata.
+#[tauri::command]
+pub async fn model_load(path: String) -> Result<ModelInfo, String> {
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("Cannot read model file: {}", e))?;
+
+    parse_model_info(&content)
+}
+
+fn parse_model_info(content: &str) -> Result<ModelInfo, String> {
+    let model: serde_json::Value =
+        serde_json::from_str(content).map_err(|e| format!("Invalid model file format: {}", e))?;
+
+    // Validate required fields
+    let version = model
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let analysis_type = model
+        .get("analysis_type")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing analysis_type field")?
+        .to_string();
+
+    let model_section = model.get("model").ok_or("Missing model section")?;
+
+    let variables: Vec<String> = model_section
+        .get("variables")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
                 .collect()
-        };
-        let times = nums(&m["baseline"]["time"])?;
-        let hazards = nums(&m["baseline"]["cumulative_hazard"])?;
-        if times.is_empty()
-            || times.len() != hazards.len()
-            || times.iter().any(|t| *t <= 0.)
-            || times.windows(2).any(|w| w[1] <= w[0])
-            || hazards.iter().any(|h| *h < 0.)
-            || hazards.windows(2).any(|w| w[1] < w[0])
-            || !number(&m["baseline"]["reference_lp"])
-        {
-            return Err("survival baseline invalid".into());
+        })
+        .unwrap_or_default();
+
+    let formula = model_section
+        .get("formula")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let optimal_threshold = model_section
+        .get("optimal_threshold")
+        .and_then(|v| v.as_f64());
+    let risk_threshold = model_section.get("risk_threshold").and_then(|v| v.as_f64());
+    let risk_threshold_scale = model_section
+        .get("risk_threshold_scale")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let performance = model.get("performance");
+    let train_auc = performance
+        .and_then(|p| p.get("train_auc"))
+        .and_then(|v| v.as_f64());
+    let test_auc = performance
+        .and_then(|p| p.get("test_auc"))
+        .and_then(|v| v.as_f64());
+    let auc_reason = |field: &str, value: Option<f64>| {
+        performance
+            .and_then(|p| p.get(field))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(String::from)
+            .or_else(|| {
+                value
+                    .is_none()
+                    .then(|| "AUC unavailable; no reason saved in model".into())
+            })
+    };
+    let train_auc_reason = auc_reason("train_auc_reason", train_auc);
+    let test_auc_reason = auc_reason("test_auc_reason", test_auc);
+
+    let training_config = model.get("training_config");
+    let training_data_file = training_config
+        .and_then(|c| c.get("data_file"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let training_sample_count = training_config
+        .and_then(|c| c.get("sample_count"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    // Validate we have at least variables and coefficients
+    if variables.is_empty() {
+        return Err("Model has no variables".into());
+    }
+    let coefficients = model_section.get("coefficients");
+    if coefficients.is_none() || !coefficients.unwrap().is_object() {
+        return Err("Model has no coefficients".into());
+    }
+
+    // Extract embedded config if present
+    let config = model.get("config").cloned();
+
+    Ok(ModelInfo {
+        version,
+        created_at: model
+            .get("created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        analysis_type,
+        variable_count: variables.len(),
+        variables,
+        formula,
+        train_auc,
+        test_auc,
+        train_auc_reason,
+        test_auc_reason,
+        optimal_threshold,
+        risk_threshold,
+        risk_threshold_scale,
+        training_data_file,
+        training_sample_count,
+        config,
+    })
+}
+
+/// Copy a model.bmpmodel from the output directory to a user-chosen location.
+#[tauri::command]
+pub async fn model_save(source_path: String, dest_path: String) -> Result<String, String> {
+    if !std::path::Path::new(&source_path).exists() {
+        return Err(String::from(AppError::file_not_found(&format!(
+            "Model file not found: {}",
+            source_path
+        ))));
+    }
+
+    std::fs::copy(&source_path, &dest_path)
+        .map_err(|e| format!("Failed to save model: {}", e))?;
+
+    Ok(dest_path)
+}
+
+/// Check if a model.bmpmodel exists in the given output directory.
+#[tauri::command]
+pub async fn model_check_exists(output_dir: String) -> Result<Option<String>, String> {
+    let model_path = PathBuf::from(&output_dir).join("model.bmpmodel");
+    if model_path.exists() {
+        Ok(Some(model_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Run prediction using a saved model and new data.
+#[tauri::command]
+pub async fn prediction_run(
+    model_path: String,
+    data_path: String,
+    output_dir: String,
+    backend: String,
+    app: tauri::AppHandle,
+    state: State<'_, PredictionProcess>,
+) -> Result<(), String> {
+    let output_path = PathBuf::from(&output_dir);
+    let _ = std::fs::create_dir_all(&output_path);
+
+    if backend == "docker" {
+        return run_prediction_docker(model_path, data_path, output_dir, app, state).await;
+    }
+
+    // Local mode
+    let project_root = find_project_root().ok_or_else(|| {
+        String::from(AppError::analysis_failed(
+            "Cannot find project root (Predict_New.R not found).",
+        ))
+    })?;
+
+    let predict_script = project_root.join("Predict_New.R");
+    if !predict_script.exists() {
+        return Err("Predict_New.R not found in project root".into());
+    }
+
+    let pixi_path = project_root.join(".pixi/envs/default/bin/Rscript");
+    let (cmd_program, cmd_args) = if pixi_path.exists() {
+        (
+            pixi_path.to_string_lossy().to_string(),
+            vec![
+                "Predict_New.R".to_string(),
+                format!("--model={}", model_path),
+                format!("--data={}", data_path),
+                format!("--output={}", output_dir),
+            ],
+        )
+    } else {
+        (
+            "Rscript".to_string(),
+            vec![
+                "Predict_New.R".to_string(),
+                format!("--model={}", model_path),
+                format!("--data={}", data_path),
+                format!("--output={}", output_dir),
+            ],
+        )
+    };
+
+    let mut cmd = hide_console(std::process::Command::new(&cmd_program));
+    cmd.args(&cmd_args)
+        .current_dir(&project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    if pixi_path.exists() {
+        let r_lib_path = project_root.join(".pixi/envs/default/lib/R/library");
+        if r_lib_path.exists() {
+            cmd.env("R_LIBS", r_lib_path.to_string_lossy().as_ref());
         }
-        if !["days", "months", "years"].contains(&m["time_unit"].as_str().unwrap_or(""))
-            || m["horizon"].as_f64().unwrap_or(0.) <= 0.
-            || !["event", "time_variable"]
-                .iter()
-                .all(|k| text(&m["outcome"][*k]))
-        {
-            return Err("survival roles/units/horizon invalid".into());
+    }
+
+    let mut child = cmd.spawn().map_err(|e| {
+        String::from(AppError::runtime_not_found(&format!(
+            "Failed to start R for prediction: {}",
+            e
+        )))
+    })?;
+
+    let _ = app.emit(
+        "prediction://log",
+        format!("[BioMarkerPred] Prediction using: {}", cmd_program),
+    );
+
+    let pid = child.id();
+    {
+        let mut guard = state.child.lock().map_err(|e| e.to_string())?;
+        *guard = Some(pid);
+    }
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let app_handle = app.clone();
+
+    std::thread::spawn(move || {
+        let app_for_stderr = app_handle.clone();
+        let stderr_thread = stderr.map(|stderr| {
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = app_for_stderr.emit("prediction://log", &line);
+                    }
+                }
+            })
+        });
+
+        if let Some(stdout) = stdout {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_handle.emit("prediction://log", &line);
+                }
+            }
         }
-        let support = nums(&m["training"]["time_range"])?;
-        let censor_times = nums(&m["training"]["censor_curve"]["time"])?;
-        let censor = nums(&m["training"]["censor_curve"]["survival"])?;
-        if support.len() != 2
-            || support[0] <= 0.
-            || support[1] < support[0]
-            || m["training"]["events"].as_f64().unwrap_or(0.) <= 0.
-            || censor_times.is_empty()
-            || censor_times.len() != censor.len()
-            || censor_times.windows(2).any(|w| w[1] <= w[0])
-            || censor.windows(2).any(|w| w[1] > w[0])
-            || censor.iter().any(|n| !(0. ..=1.).contains(n))
-        {
-            return Err("survival support/censor curve invalid".into());
+
+        if let Some(handle) = stderr_thread {
+            let _ = handle.join();
         }
+
+        match child.wait() {
+            Ok(status) => {
+                let _ = app_handle.emit(
+                    "prediction://complete",
+                    serde_json::json!({
+                        "success": status.success(),
+                        "code": status.code()
+                    }),
+                );
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "prediction://error",
+                    serde_json::json!({ "message": e.to_string() }),
+                );
+            }
+        }
+
+        let process_state = app_handle.state::<PredictionProcess>();
+        let _ = process_state
+            .child
+            .lock()
+            .map(|mut guard| *guard = None);
+    });
+
+    Ok(())
+}
+
+/// Cancel a running prediction process.
+#[tauri::command]
+pub async fn prediction_cancel(state: State<'_, PredictionProcess>) -> Result<(), String> {
+    let mut guard = state.child.lock().map_err(|e| e.to_string())?;
+    if let Some(pid) = *guard {
+        #[cfg(unix)]
+        {
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = hide_console(std::process::Command::new("taskkill"))
+                .args(["/PID", &pid.to_string(), "/F"])
+                .output();
+        }
+        *guard = None;
     }
     Ok(())
 }
+
+/// Read prediction results CSV and return as JSON array.
 #[tauri::command]
-pub async fn model_load(path: String) -> Result<Value, String> {
-    let model = read_json(Path::new(&path))?;
-    validate_model(&model)?;
-    Ok(
-        json!({"path":path,"sha256":super::artifacts::sha256(Path::new(&path))?,"model":model,"metrics":null,"metrics_reason":"Performance belongs to a verified development or external evaluation run; a portable model does not imply validation performance."}),
-    )
+pub async fn prediction_read_results(output_dir: String) -> Result<serde_json::Value, String> {
+    let results_path = PathBuf::from(&output_dir).join("prediction_results.csv");
+    if !results_path.exists() {
+        return Err("Prediction results file not found".into());
+    }
+
+    let mut reader = csv::Reader::from_path(&results_path)
+        .map_err(|e| format!("Cannot read results CSV: {}", e))?;
+
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| format!("Cannot read CSV headers: {}", e))?
+        .iter()
+        .map(String::from)
+        .collect();
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for result in reader.records() {
+        let record = result.map_err(|e| format!("CSV parse error: {}", e))?;
+        let mut row = serde_json::Map::new();
+        for (i, field) in record.iter().enumerate() {
+            if let Some(header) = headers.get(i) {
+                // Try to parse as number, fall back to string
+                if let Ok(n) = field.parse::<f64>() {
+                    row.insert(header.clone(), serde_json::json!(n));
+                } else if let Ok(n) = field.parse::<i64>() {
+                    row.insert(header.clone(), serde_json::json!(n));
+                } else {
+                    row.insert(header.clone(), serde_json::json!(field));
+                }
+            }
+        }
+        rows.push(serde_json::Value::Object(row));
+    }
+
+    Ok(serde_json::json!({
+        "headers": headers,
+        "rows": rows,
+        "count": rows.len()
+    }))
 }
-#[tauri::command]
-pub async fn model_save(source_path: String, dest_path: String) -> Result<String, String> {
-    copy_preserving_source(Path::new(&source_path), Path::new(&dest_path))?;
-    Ok(dest_path)
-}
-#[tauri::command]
-pub async fn model_check_exists(output_dir: String) -> Result<Option<String>, String> {
-    let path = Path::new(&output_dir).join("model.bmpmodel");
-    Ok(path.is_file().then(|| path.to_string_lossy().into_owned()))
-}
-#[tauri::command]
-pub async fn prediction_read_results(output_dir: String) -> Result<Value, String> {
-    let path = Path::new(&output_dir);
-    super::fs_ops::read_csv(
-        &if path.is_file() {
-            path.to_path_buf()
-        } else {
-            path.join("predictions.csv")
-        },
-        None,
-    )
+
+/// Run prediction via Docker container.
+async fn run_prediction_docker(
+    model_path: String,
+    data_path: String,
+    output_dir: String,
+    app: tauri::AppHandle,
+    state: State<'_, PredictionProcess>,
+) -> Result<(), String> {
+    let model_pb = PathBuf::from(&model_path);
+    let data_pb = PathBuf::from(&data_path);
+    let output_pb = PathBuf::from(&output_dir);
+
+    let model_dir = model_pb
+        .parent()
+        .ok_or("Invalid model file path")?;
+    let model_filename = model_pb
+        .file_name()
+        .ok_or("Invalid model file name")?
+        .to_string_lossy();
+
+    let data_dir = data_pb
+        .parent()
+        .ok_or("Invalid data file path")?;
+    let data_filename = data_pb
+        .file_name()
+        .ok_or("Invalid data file name")?
+        .to_string_lossy();
+
+    let _ = std::fs::create_dir_all(&output_pb);
+
+    fn docker_path(p: &std::path::Path) -> String {
+        p.to_string_lossy().replace('\\', "/")
+    }
+
+    let mut docker_args = vec![
+        "run".to_string(),
+        "--rm".to_string(),
+        "-v".to_string(),
+        format!("{}:/model:ro", docker_path(model_dir)),
+        "-v".to_string(),
+        format!("{}:/data:ro", docker_path(data_dir)),
+        "-v".to_string(),
+        format!("{}:/output", docker_path(&output_pb)),
+    ];
+
+    // Mount Predict_New.R and updated entrypoint from project root
+    // (needed until Docker image is rebuilt to include these files)
+    if let Some(project_root) = find_project_root() {
+        let predict_new = project_root.join("Predict_New.R");
+        if predict_new.exists() {
+            docker_args.push("-v".to_string());
+            docker_args.push(format!("{}:/app/Predict_New.R:ro", docker_path(&predict_new)));
+        }
+        let entrypoint = project_root.join("docker-entrypoint.sh");
+        if entrypoint.exists() {
+            docker_args.push("-v".to_string());
+            docker_args.push(format!("{}:/usr/local/bin/docker-entrypoint.sh:ro", docker_path(&entrypoint)));
+        }
+    }
+
+    docker_args.push(super::DOCKER_IMAGE.to_string());
+    docker_args.push("predict".to_string());
+    docker_args.push(format!("--model=/model/{}", model_filename));
+    docker_args.push(format!("--data=/data/{}", data_filename));
+    docker_args.push("--output=/output".to_string());
+
+    let _ = app.emit(
+        "prediction://log",
+        format!(
+            "[BioMarkerPred] Docker prediction: docker {}",
+            docker_args.join(" ")
+        ),
+    );
+
+    let mut child = hide_console(std::process::Command::new(&find_docker()))
+        .args(&docker_args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            String::from(AppError::analysis_failed(&format!(
+                "Failed to start Docker for prediction: {}",
+                e
+            )))
+        })?;
+
+    let pid = child.id();
+    {
+        let mut guard = state.child.lock().map_err(|e| e.to_string())?;
+        *guard = Some(pid);
+    }
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let app_handle = app.clone();
+
+    std::thread::spawn(move || {
+        let app_for_stderr = app_handle.clone();
+        let stderr_thread = stderr.map(|stderr| {
+            std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = app_for_stderr.emit("prediction://log", &line);
+                    }
+                }
+            })
+        });
+
+        if let Some(stdout) = stdout {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_handle.emit("prediction://log", &line);
+                }
+            }
+        }
+
+        if let Some(handle) = stderr_thread {
+            let _ = handle.join();
+        }
+
+        match child.wait() {
+            Ok(status) => {
+                let _ = app_handle.emit(
+                    "prediction://complete",
+                    serde_json::json!({
+                        "success": status.success(),
+                        "code": status.code()
+                    }),
+                );
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "prediction://error",
+                    serde_json::json!({ "message": e.to_string() }),
+                );
+            }
+        }
+
+        let process_state = app_handle.state::<PredictionProcess>();
+        let _ = process_state
+            .child
+            .lock()
+            .map(|mut guard| *guard = None);
+    });
+
+    Ok(())
 }

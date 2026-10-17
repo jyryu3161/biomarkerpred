@@ -1,5 +1,0 @@
-top	Top synthetic genes	A	B	D
-bottom	Bottom synthetic genes	I	J
-all	Synthetic assay universe	A	B	C	D	E	F	G	H	I	J
-outside	Unmeasured interaction partner	K
-unsafe<term>	<script>escaped annotation</script>	A	C
