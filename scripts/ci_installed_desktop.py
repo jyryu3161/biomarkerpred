@@ -232,15 +232,19 @@ def main():
             progress(folder, kind, 'starting', installer=installer.name)
             install = folder / 'Installed BioMarkerPred'
             if kind == 'msi':
+                resolved_msiexec = shutil.which('msiexec.exe')
+                if not resolved_msiexec or not Path(resolved_msiexec).is_file():
+                    raise RuntimeError('Cannot locate the Windows Installer executable msiexec.exe')
+                msiexec = str(Path(resolved_msiexec).resolve())
                 # MSI parses property=value itself: quote the value, not the
                 # whole property token produced by Python's CRT argv quoting.
                 # https://learn.microsoft.com/en-us/windows/win32/msi/command-line-options
                 if any(character in str(install) for character in ('"', '\r', '\n')):
                     raise ValueError('MSI property path contains unsupported quote/newline characters')
-                command = subprocess.list2cmdline(['msiexec.exe', '/i', str(installer), '/qn', '/norestart',
+                command = subprocess.list2cmdline([msiexec, '/i', str(installer), '/qn', '/norestart',
                                                   '/L*V!', str(folder / 'install.log')])
                 command += f' INSTALLDIR="{install}"'
-                bounded(command, executable='msiexec.exe', output=folder, phase='msi_install',
+                bounded(command, executable=msiexec, output=folder, phase='msi_install',
                         timeout=300, allowed=(0, 3010))
             else:
                 # NSIS /D is the final, unquoted raw command-line tail (no shell).
