@@ -18,6 +18,28 @@ export interface RuntimeSettings {
   dockerImage: string;
   outputRoot: string | null;
 }
+export interface DockerStatus {
+  state:
+    | "cli_missing"
+    | "engine_unreachable"
+    | "wrong_container_mode"
+    | "image_missing"
+    | "image_check_failed"
+    | "ready";
+  executable: string;
+  image: string;
+  imageId: string | null;
+  serverOs: string | null;
+  message: string;
+  diagnostics: {
+    phase: string;
+    exitCode: number | null;
+    stdout: string;
+    stderr: string[];
+    timedOut: boolean;
+    error: string | null;
+  }[];
+}
 export interface EngineRequest {
   operation: Operation;
   options?: Record<string, string | number | string[]>;

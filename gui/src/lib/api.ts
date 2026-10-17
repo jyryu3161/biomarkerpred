@@ -5,6 +5,7 @@ import type {
   CsvTable,
   DataInfo,
   Disease,
+  DockerStatus,
   EngineEvent,
   EngineRequest,
   EngineResponse,
@@ -45,6 +46,9 @@ export const api = {
     invoke<string>("config_save_yaml", { config, path }),
   pull: (settings: RuntimeSettings) =>
     invoke<string>("runtime_pull_image", { settings }),
+  dockerStatus: (settings: RuntimeSettings) =>
+    invoke<DockerStatus>("runtime_docker_status", { settings }),
+  openDockerDownload: () => invoke<void>("runtime_open_docker_download"),
   searchDisease: (query: string) =>
     invoke<Disease[]>("opentargets_search_diseases", { query }),
   fetchEvidence: (efoId: string, diseaseName: string) =>

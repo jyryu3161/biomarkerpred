@@ -1,15 +1,14 @@
 use super::{
     artifacts::{atomic_json, read_json},
-    engine_process::{run_process, DockerProcess, Job},
+    engine_process::{DockerProcess, Job},
     engine_types::{scalar, Backend, EngineRequest, Operation, RuntimeSettings},
-    runtime::r_executable,
+    runtime::{inspect_docker, r_executable, DockerState},
 };
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Arc,
-    time::Duration,
 };
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Mount {
@@ -407,32 +406,14 @@ pub fn prepare(
             .current_dir(&base);
         (c, None, None, None)
     } else {
-        let executable = settings
-            .docker_path
-            .clone()
-            .unwrap_or_else(super::find_docker);
-        let mut inspect = Command::new(&executable);
-        inspect.args([
-            "image",
-            "inspect",
-            "--format",
-            "{{.Id}}",
-            &settings.docker_image,
-        ]);
-        let inspected = run_process(
-            inspect,
-            job.clone(),
-            Some(Duration::from_secs(20)),
-            None,
-            Arc::new(|_| {}),
-        )?;
-        if inspected.cancelled {
-            return Err("Operation cancelled during Docker inspection".into());
+        let status = inspect_docker(settings, job.clone())?;
+        if status.state != DockerState::Ready {
+            return Err(status.error_message());
         }
-        let id = inspected.stdout.trim().to_string();
-        if inspected.code != Some(0) || !id.starts_with("sha256:") {
-            return Err(format!("Configured Docker image is unavailable: {}. Build/install the compatible engine image or choose local R. {}",settings.docker_image,inspected.stderr.join("\n")));
-        }
+        let executable = status.executable;
+        let id = status
+            .image_id
+            .ok_or("Docker inspection returned no image identity")?;
         let token_hash = {
             use sha2::{Digest, Sha256};
             format!("{:x}", Sha256::digest(job.id.as_bytes()))

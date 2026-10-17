@@ -2,6 +2,8 @@ mod commands;
 #[cfg(test)]
 mod integration_tests;
 mod models;
+#[cfg(test)]
+mod runtime_review_tests;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +30,8 @@ pub fn run() {
             commands::runtime::engine_get_settings,
             commands::runtime::engine_save_settings,
             commands::runtime::runtime_pull_image,
+            commands::runtime::runtime_docker_status,
+            commands::runtime::runtime_open_docker_download,
             commands::fs_ops::fs_pick_file,
             commands::fs_ops::fs_pick_directory,
             commands::fs_ops::fs_read_csv_header,

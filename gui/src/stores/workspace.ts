@@ -4,6 +4,7 @@ import { errorText, object, responseError, schemaDefaults } from "@/lib/value";
 import type {
   AnalysisConfig,
   DataInfo,
+  DockerStatus,
   EngineResponse,
   JsonObject,
   Page,
@@ -17,6 +18,8 @@ interface Workspace {
   initialized: boolean;
   initError: string | null;
   doctor: EngineResponse | null;
+  dockerStatus: DockerStatus | null;
+  downloadingImage: boolean;
   checkingRuntime: boolean;
   runtimeError: string | null;
   config: AnalysisConfig;
@@ -37,6 +40,8 @@ export const useWorkspace = create<Workspace>(() => ({
   initialized: false,
   initError: null,
   doctor: null,
+  dockerStatus: null,
+  downloadingImage: false,
   checkingRuntime: false,
   runtimeError: null,
   config: {},
@@ -118,36 +123,56 @@ export async function inspectData(path: string) {
     useWorkspace.setState({ dataInfo: info });
   return info;
 }
+let runtimeSequence = 0;
 export async function checkRuntime() {
   const settings = useWorkspace.getState().settings;
-  if (!settings) return;
+  if (!settings || useWorkspace.getState().downloadingImage) return false;
+  const sequence = ++runtimeSequence;
   const identity = JSON.stringify(settings);
+  const current = () =>
+    sequence === runtimeSequence &&
+    JSON.stringify(useWorkspace.getState().settings) === identity;
   useWorkspace.setState({
     checkingRuntime: true,
     doctor: null,
+    dockerStatus: null,
     runtimeError: null,
   });
   try {
+    if (settings.backend === "docker") {
+      const status = await api.dockerStatus(settings);
+      if (!current()) return false;
+      useWorkspace.setState({ dockerStatus: status });
+      if (status.state !== "ready") {
+        useWorkspace.setState({ runtimeError: status.message });
+        return false;
+      }
+    }
     const response = await api.call({ operation: "doctor", settings });
-    if (JSON.stringify(useWorkspace.getState().settings) === identity)
+    if (current()) {
       useWorkspace.setState({
         doctor: response,
         runtimeError: response.success ? null : responseError(response),
       });
+      return response.success;
+    }
+    return false;
   } catch (error) {
-    if (JSON.stringify(useWorkspace.getState().settings) === identity)
-      useWorkspace.setState({ runtimeError: errorText(error) });
+    if (current()) useWorkspace.setState({ runtimeError: errorText(error) });
+    return false;
   } finally {
-    if (JSON.stringify(useWorkspace.getState().settings) === identity)
-      useWorkspace.setState({ checkingRuntime: false });
+    if (current()) useWorkspace.setState({ checkingRuntime: false });
   }
 }
-export async function saveSettings(settings: RuntimeSettings) {
+async function persistSettings(settings: RuntimeSettings) {
   const saved = await api.saveSettings(settings);
+  ++runtimeSequence;
   const state = useWorkspace.getState();
   useWorkspace.setState({
     settings: saved,
     doctor: null,
+    dockerStatus: null,
+    checkingRuntime: false,
     runtimeError: null,
     validatedConfig: null,
     validation: null,
@@ -163,7 +188,50 @@ export async function saveSettings(settings: RuntimeSettings) {
             .output_dir))
   )
     updateConfig({ output_dir: saved.outputRoot });
+  return saved;
+}
+export async function saveSettings(settings: RuntimeSettings) {
+  if (useWorkspace.getState().downloadingImage)
+    throw new Error("Wait for the analysis image download to finish.");
+  await persistSettings(settings);
   await checkRuntime();
+}
+export async function downloadImage(settings: RuntimeSettings) {
+  if (useWorkspace.getState().downloadingImage)
+    throw new Error("An analysis image download is already in progress. Wait for it to finish.");
+  ++runtimeSequence;
+  useWorkspace.setState({
+    downloadingImage: true,
+    checkingRuntime: false,
+    doctor: null,
+    dockerStatus: null,
+    runtimeError: null,
+  });
+  try {
+    const saved = await persistSettings(settings);
+    await api.pull(saved);
+  } catch (error) {
+    // Recheck prerequisites without turning a failed pull into a successful setup.
+    const currentSettings = useWorkspace.getState().settings;
+    if (currentSettings?.backend === "docker") {
+      try {
+        const status = await api.dockerStatus(currentSettings);
+        useWorkspace.setState({ dockerStatus: status });
+      } catch {
+        /* The original save/download error remains authoritative. */
+      }
+    }
+    useWorkspace.setState({ runtimeError: errorText(error) });
+    throw error;
+  } finally {
+    useWorkspace.setState({ downloadingImage: false });
+  }
+  if (!(await checkRuntime())) {
+    throw new Error(
+      useWorkspace.getState().runtimeError ??
+        "The image was downloaded, but runtime verification did not pass. Check runtime diagnostics.",
+    );
+  }
 }
 export async function validateConfiguration(file?: string) {
   const state = useWorkspace.getState();

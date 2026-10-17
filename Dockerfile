@@ -6,7 +6,7 @@ RUN pixi install --locked
 
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 LABEL org.opencontainers.image.title="BioMarkerPred research engine"
-LABEL org.opencontainers.image.version="0.5.0"
+LABEL org.opencontainers.image.version="0.5.1"
 # Snapshot fixes OS/font dependencies; Cairo embeds searchable Unicode text.
 RUN rm /etc/apt/sources.list.d/debian.sources && \
     printf '%s\n' 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261005T000000Z bookworm main' \

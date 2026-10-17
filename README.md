@@ -118,13 +118,13 @@ For source development, use Node **22.18.0**, npm **11.9.0**, Rust **1.90.0** an
 ./run_gui.sh
 ```
 
-The installed desktop bundles the engine code/schema, not an R runtime. Select a compatible local Rscript or the published `jyryu3161/biomarkerpred:v0.5.0` image. Docker mode requires Docker Desktop/Engine with Linux containers. In Settings, choose Docker, use **Pull configured image**, save settings, then run the doctor. Pulling is explicit; existing settings are preserved. Bundled engine resolution is independent of the working directory.
+The installed desktop bundles the engine code/schema, not an R runtime. Select a compatible local Rscript or the published `jyryu3161/biomarkerpred:v0.5.1` image. Docker mode requires Docker Desktop/Engine with Linux containers. In Settings, choose Docker, start Docker Desktop and wait for its **Linux engine**, then choose **Download analysis image**. This explicit download saves the chosen settings and automatically runs the actual engine doctor; an available image alone does not establish readiness. **Check runtime** only inspects the engine/image and runs doctor; it does not install or start Docker. A Windows `dockerDesktopLinuxEngine` named-pipe error means the selected Docker CLI cannot reach its engine, not that the analysis image is missing: wait for Docker Desktop to finish starting, or check the Docker context and permissions, then check runtime again. Bundled engine resolution is independent of the working directory.
 
 ## Docker engine
 
 ```bash
-docker pull jyryu3161/biomarkerpred:v0.5.0
-docker run --rm jyryu3161/biomarkerpred:v0.5.0 doctor --json
+docker pull jyryu3161/biomarkerpred:v0.5.1
+docker run --rm jyryu3161/biomarkerpred:v0.5.1 doctor --json
 ./run_docker.sh validate --config config/test_docker.yaml --json
 ./run_docker.sh analyze --config config/test_docker.yaml --json
 ```

@@ -24,7 +24,7 @@ impl Default for RuntimeSettings {
             backend: Backend::Local,
             r_path: None,
             docker_path: None,
-            docker_image: "jyryu3161/biomarkerpred:v0.5.0".into(),
+            docker_image: "jyryu3161/biomarkerpred:v0.5.1".into(),
             output_root: None,
         }
     }

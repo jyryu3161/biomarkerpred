@@ -1,5 +1,5 @@
 # One dispatcher for local, container and desktop execution. Never invoke a shell.
-bmp_cli_version <- function() list(application = "BioMarkerPred", application_version = "0.5.0", engine_version = "1.0.0", interface_version = 1L, config_version = 1L, model_version = 1L, selection_policy_version = 2L)
+bmp_cli_version <- function() list(application = "BioMarkerPred", application_version = "0.5.1", engine_version = "1.0.0", interface_version = 1L, config_version = 1L, model_version = 1L, selection_policy_version = 2L)
 bmp_cli_help <- function() paste(c(
   "BioMarkerPred shared research engine", "Usage: Rscript BiomarkerCLI.R COMMAND [OPTIONS]", "",
   "validate --config PATH           Validate and return QC without creating a run",

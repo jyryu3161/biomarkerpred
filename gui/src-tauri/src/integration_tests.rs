@@ -520,7 +520,7 @@ fn zero_exit_bad_protocol_and_unfinished_manifest_never_succeed() {
 #[cfg(unix)]
 fn fake_docker(dir: &Path) -> PathBuf {
     let exe = dir.join("fake-docker");
-    executable(&exe,"#!/usr/bin/python3\nimport sys\nif sys.argv[1:3]==['image','inspect']: print('sha256:'+'a'*64)\nelse: sys.exit(1)\n");
+    executable(&exe,"#!/usr/bin/python3\nimport sys\nif sys.argv[1]=='info': print('linux')\nelif sys.argv[1:3]==['image','inspect']: print('sha256:'+'a'*64)\nelse: sys.exit(1)\n");
     exe
 }
 #[cfg(unix)]
@@ -622,7 +622,7 @@ fn docker_cancel_during_create_never_starts_container() {
     let script = temp.path().join("docker");
     let marker = temp.path().join("creating");
     let log = temp.path().join("calls");
-    executable(&script,&format!("#!/usr/bin/python3\nimport sys,time\nwith open({:?},'a') as f: f.write(sys.argv[1]+'\\n')\nif sys.argv[1:3]==['image','inspect']: print('sha256:'+'a'*64)\nelif sys.argv[1]=='create':\n open({:?},'w').write('ready')\n time.sleep(60)\nelif sys.argv[1] in ['stop','rm','info']: pass\nelse: sys.exit(1)\n",log.to_string_lossy(),marker.to_string_lossy()));
+    executable(&script,&format!("#!/usr/bin/python3\nimport sys,time\nwith open({:?},'a') as f: f.write(sys.argv[1]+'\\n')\nif sys.argv[1:3]==['image','inspect']: print('sha256:'+'a'*64)\nelif sys.argv[1]=='create':\n open({:?},'w').write('ready')\n time.sleep(60)\nelif sys.argv[1]=='info': print('linux')\nelif sys.argv[1] in ['stop','rm']: pass\nelse: sys.exit(1)\n",log.to_string_lossy(),marker.to_string_lossy()));
     let settings = RuntimeSettings {
         backend: Backend::Docker,
         docker_path: Some(script.to_string_lossy().into_owned()),

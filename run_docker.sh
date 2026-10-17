@@ -4,8 +4,8 @@ set -euo pipefail
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'HELP'
 Usage: ./run_docker.sh COMMAND [CLI OPTIONS]
-Default published image: jyryu3161/biomarkerpred:v0.5.0.
-Fetch explicitly first: docker pull jyryu3161/biomarkerpred:v0.5.0
+Default published image: jyryu3161/biomarkerpred:v0.5.1.
+Fetch explicitly first: docker pull jyryu3161/biomarkerpred:v0.5.1
 For a local build, set BMP_DOCKER_IMAGE=biomarkerpred-engine:local.
 Override BMP_DOCKER_IMAGE or BMP_DOCKER_PATH (one executable path) if needed.
 The current host directory is mounted at /work and is the container working directory.
@@ -24,7 +24,7 @@ HELP
 fi
 if (( $# == 0 )); then printf '%s\n' 'Provide a CLI command; see --help.' >&2; exit 2; fi
 bmp_docker="${BMP_DOCKER_PATH:-docker}"
-bmp_image="${BMP_DOCKER_IMAGE:-jyryu3161/biomarkerpred:v0.5.0}"
+bmp_image="${BMP_DOCKER_IMAGE:-jyryu3161/biomarkerpred:v0.5.1}"
 bmp_digest="$("$bmp_docker" image inspect --format '{{.Id}}' "$bmp_image")"
 if [[ ! "$bmp_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   printf '%s\n' 'Cannot determine the immutable identity of the locally available engine image.' >&2

@@ -226,7 +226,8 @@ class HelperTests(unittest.TestCase):
         result = self.call("run_docker.sh", "validate", "--config", "/work/config with , space.json", "--json", env=env, ok=False)
         self.assertEqual(result.returncode, 7)
         recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-        self.assertEqual(recorded[0], ["image", "inspect", "--format", "{{.Id}}", "jyryu3161/biomarkerpred:v0.5.0"])
+        version = json.loads((ROOT / "gui/package.json").read_text())["version"]
+        self.assertEqual(recorded[0], ["image", "inspect", "--format", "{{.Id}}", f"jyryu3161/biomarkerpred:v{version}"])
         command = recorded[1]
         self.assertEqual(command[command.index("--volume") + 1], str(self.work) + ":/work")
         self.assertEqual(command[command.index("--workdir") + 1], "/work")
